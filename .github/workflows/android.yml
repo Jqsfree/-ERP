@@ -16,7 +16,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Check project Flutter version
-        run: grep -q '"flutter": "3.47.9"' .fvmrc
+        run: |
+          grep -q '"flutter": "3.47.9"' .fvmrc
       - name: Shell script syntax
         run: bash -n scripts/doctor.sh scripts/bootstrap-ubuntu.sh
       - name: Install Flutter
