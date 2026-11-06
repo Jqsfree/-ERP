@@ -30,6 +30,7 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = DatabaseScope.of(context);
+    final BackupStore? backupStore = store is BackupStore ? store : null;
     final tiles = <({String name, IconData icon, VoidCallback? action})>[
       (name: '销售', icon: Icons.receipt_long, action: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SaleEditorPage()))),
       (name: '采购', icon: Icons.shopping_cart, action: null),
@@ -42,10 +43,10 @@ class HomePage extends StatelessWidget {
     ];
     return Scaffold(
       appBar: AppBar(title: const Text('$_brand · 开单管理'), actions: [
-        if (store is BackupStore)
+        if (backupStore != null)
           IconButton(tooltip: '数据备份与恢复', icon: const Icon(Icons.backup_outlined),
             onPressed: () => Navigator.push(context, MaterialPageRoute(
-              builder: (_) => BackupPage(store: store)))),
+              builder: (_) => BackupPage(store: backupStore)))),
         IconButton(tooltip: '销售记录', icon: const Icon(Icons.history),
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SalesPage()))),
       ]),
