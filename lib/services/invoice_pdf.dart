@@ -76,7 +76,9 @@ class InvoicePdf {
         line.areaText, Fixed.format(line.unitPriceCents, decimals: 2),
         Fixed.format(line.totalCents, decimals: 2), line.note,
       ];
-      for (var j = 0; j < values.length; j++) _cellText(canvas, values[j], j, y + 11);
+      for (var j = 0; j < values.length; j++) {
+        _cellText(canvas, values[j], j, y + 11);
+      }
       _gridLine(canvas, y + rowH);
     }
     for (var c = 0; c < _columns.length; c++) {
