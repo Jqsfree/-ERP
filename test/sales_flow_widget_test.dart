@@ -20,6 +20,8 @@ void main() {
       await tester.pumpWidget(KaibaoApp(database: db));
       await tester.pumpAndSettle();
 
+      await tester.ensureVisible(find.text('客户'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('客户'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('新增客户'));
@@ -31,6 +33,8 @@ void main() {
       await tester.pageBack();
       await tester.pumpAndSettle();
 
+      await tester.ensureVisible(find.text('产品'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('产品'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('新增产品'));
@@ -43,12 +47,16 @@ void main() {
       await tester.pageBack();
       await tester.pumpAndSettle();
 
+      await tester.ensureVisible(find.text('销售'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('销售'));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byType(DropdownButtonFormField<int>).first);
       await tester.tap(find.byType(DropdownButtonFormField<int>).first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('客户A').last);
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byType(DropdownButtonFormField<int>).last);
       await tester.tap(find.byType(DropdownButtonFormField<int>).last);
       await tester.pumpAndSettle();
       await tester.tap(find.text('KB56-34').last);
