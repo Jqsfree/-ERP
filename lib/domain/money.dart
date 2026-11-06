@@ -33,7 +33,7 @@ class Fixed {
 
   static int _pow10(int n) {
     var result = 1;
-    for (var i = 0; i < n; i++) result *= 10;
+    for (var i = 0; i < n; i++) { result *= 10; }
     return result;
   }
 }
