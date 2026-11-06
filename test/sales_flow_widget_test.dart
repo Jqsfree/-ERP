@@ -12,7 +12,7 @@ void main() {
 
   testWidgets('真实界面：客户输入 -> 产品输入 -> 销售单 -> SQLite -> 详情输出',
       (tester) async {
-    final dir = await Directory.systemTemp.createTemp('kaibao-widget-');
+    final dir = Directory.systemTemp.createTempSync('kaibao-widget-');
     final db = AppDatabase.forTesting(factory: databaseFactoryFfiNoIsolate,
       databasePath: p.join(dir.path, 'ui.db'),
       clock: () => DateTime(2026, 11, 6));
@@ -27,7 +27,7 @@ void main() {
       await tester.enterText(find.widgetWithText(TextFormField, '客户名称 *'), '客户A');
       await tester.tap(find.text('保存').last);
       await tester.pumpAndSettle();
-      expect((await db.customers()).single.name, '客户A');
+      expect((await tester.runAsync(() => db.customers()))!.single.name, '客户A');
       await tester.pageBack();
       await tester.pumpAndSettle();
 
@@ -39,7 +39,7 @@ void main() {
       await tester.enterText(find.widgetWithText(TextFormField, '默认单价（元/平方米）*'), '13.99');
       await tester.tap(find.text('保存').last);
       await tester.pumpAndSettle();
-      expect((await db.products()).single.unitPriceCents, 1399);
+      expect((await tester.runAsync(() => db.products()))!.single.unitPriceCents, 1399);
       await tester.pageBack();
       await tester.pumpAndSettle();
 
@@ -60,7 +60,7 @@ void main() {
       await tester.tap(find.text('确认销售并保存'));
       await tester.pumpAndSettle();
 
-      final sales = await db.sales();
+      final sales = (await tester.runAsync(() => db.sales()))!;
       expect(sales, hasLength(1));
       expect(sales.single.number, 'XS202611060001');
       expect(sales.single.payableCents, 144900);
@@ -70,8 +70,8 @@ void main() {
       expect(find.text('¥1449.00'), findsWidgets);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
-      await db.close();
-      await dir.delete(recursive: true);
+      await tester.runAsync(() => db.close());
+      dir.deleteSync(recursive: true);
     }
   });
 }
