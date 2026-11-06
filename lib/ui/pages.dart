@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:async';
 
 import '../data/app_database.dart';
+import 'database_scope.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
 import '../services/invoice_pdf.dart';
@@ -81,8 +82,13 @@ class CustomersPage extends StatefulWidget {
 }
 
 class _CustomersPageState extends State<CustomersPage> {
-  late Future<List<Customer>> _items = AppDatabase.instance.customers();
-  void _refresh() => setState(() => _items = AppDatabase.instance.customers());
+  late Future<List<Customer>> _items;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _items = DatabaseScope.of(context).customers();
+  }
+  void _refresh() => setState(() => _items = DatabaseScope.of(context).customers());
 
   Future<void> _create() async {
     final name = TextEditingController(), phone = TextEditingController(),
@@ -108,7 +114,7 @@ class _CustomersPageState extends State<CustomersPage> {
           FilledButton(onPressed: () async {
             if (!formKey.currentState!.validate()) return;
             try {
-              await AppDatabase.instance.addCustomer(Customer(
+              await DatabaseScope.of(context).addCustomer(Customer(
                 name: name.text, phone: phone.text, address: address.text,
                 openingBalanceCents: Fixed.parse(balance.text, decimals: 2)));
               if (ctx.mounted) Navigator.pop(ctx, true);
@@ -131,7 +137,7 @@ class _CustomersPageState extends State<CustomersPage> {
       return ListView.builder(itemCount: snapshot.data!.length, itemBuilder: (context, i) {
         final c = snapshot.data![i];
         return ListTile(title: Text(c.name), subtitle: Text('${c.phone}  ${c.address}'),
-          trailing: FutureBuilder<int>(future: AppDatabase.instance.customerOutstanding(c.id!),
+          trailing: FutureBuilder<int>(future: DatabaseScope.of(context).customerOutstanding(c.id!),
             builder: (context, s) => Text(s.hasData ? '欠款 ¥${Fixed.format(s.data!, decimals: 2)}' : '…')));
       });
     }),
@@ -145,8 +151,13 @@ class ProductsPage extends StatefulWidget {
 }
 
 class _ProductsPageState extends State<ProductsPage> {
-  late Future<List<Product>> _items = AppDatabase.instance.products();
-  void _refresh() => setState(() => _items = AppDatabase.instance.products());
+  late Future<List<Product>> _items;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _items = DatabaseScope.of(context).products();
+  }
+  void _refresh() => setState(() => _items = DatabaseScope.of(context).products());
 
   Future<void> _create() async {
     final code = TextEditingController(), spec = TextEditingController(), price = TextEditingController();
@@ -171,7 +182,7 @@ class _ProductsPageState extends State<ProductsPage> {
           FilledButton(onPressed: () async {
             if (!formKey.currentState!.validate()) return;
             try {
-              await AppDatabase.instance.addProduct(Product(code: code.text, specification: spec.text,
+              await DatabaseScope.of(context).addProduct(Product(code: code.text, specification: spec.text,
                 unitPriceCents: Fixed.parse(price.text, decimals: 2)));
               if (ctx.mounted) Navigator.pop(ctx, true);
             } catch (e) { if (ctx.mounted) await _error(ctx, e); }
@@ -244,13 +255,20 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
   bool _saving = false;
   bool _loading = true;
 
+  bool _didLoad = false;
   @override
-  void initState() { super.initState(); _load(); }
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_didLoad) {
+      _didLoad = true;
+      _load();
+    }
+  }
 
   Future<void> _load() async {
     try {
-      final customers = await AppDatabase.instance.customers();
-      final products = await AppDatabase.instance.products();
+      final customers = await DatabaseScope.of(context).customers();
+      final products = await DatabaseScope.of(context).products();
       if (!mounted) return;
       setState(() { _customers = customers; _products = products; _loading = false; });
     } catch (e) { if (mounted) { setState(() => _loading = false); await _error(context, e); } }
@@ -283,13 +301,13 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
     setState(() => _saving = true);
     try {
       final customer = _customers.firstWhere((c) => c.id == _customerId);
-      final id = await AppDatabase.instance.createSale(
+      final id = await DatabaseScope.of(context).createSale(
         customer: customer, lines: _lines.map((e) => e.toLine()).toList(),
         discountCents: Fixed.parse(_discount.text, decimals: 2),
         initialReceivedCents: Fixed.parse(_received.text, decimals: 2),
         note: _note.text,
       );
-      final sale = await AppDatabase.instance.saleById(id);
+      final sale = await DatabaseScope.of(context).saleById(id);
       if (!mounted) return;
       if (sale == null) {
         Navigator.pop(context);
@@ -415,8 +433,13 @@ class SalesPage extends StatefulWidget {
 }
 
 class _SalesPageState extends State<SalesPage> {
-  late Future<List<Sale>> _items = AppDatabase.instance.sales();
-  void _refresh() => setState(() => _items = AppDatabase.instance.sales());
+  late Future<List<Sale>> _items;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _items = DatabaseScope.of(context).sales();
+  }
+  void _refresh() => setState(() => _items = DatabaseScope.of(context).sales());
 
   Future<void> _exportCsv(List<Sale> sales) async {
     final bundle = SalesCsvExporter.generate(sales);
@@ -513,8 +536,8 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
       ));
       if (confirmed != true) return;
       setState(() => _busy = true);
-      await AppDatabase.instance.addPayment(_sale, Fixed.parse(amount.text, decimals: 2), method: method.value);
-      final updated = await AppDatabase.instance.saleById(_sale.id);
+      await DatabaseScope.of(context).addPayment(_sale, Fixed.parse(amount.text, decimals: 2), method: method.value);
+      final updated = await DatabaseScope.of(context).saleById(_sale.id);
       if (updated == null) throw StateError('收款已入账，但刷新单据失败，请检查历史记录');
       if (mounted) {
         setState(() => _sale = updated);
@@ -567,7 +590,7 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
         _total('本单未收', sale.currentDueCents, emphasize: true),
         _total('上期欠款（开单时）', sale.priorDueCents),
         FutureBuilder<int>(
-          future: AppDatabase.instance.customerOutstanding(sale.customerId),
+          future: DatabaseScope.of(context).customerOutstanding(sale.customerId),
           builder: (context, snapshot) => snapshot.hasData
             ? _total('客户当前总欠款', snapshot.data!, emphasize: true)
             : Text(snapshot.hasError ? '当前欠款查询失败' : '当前欠款查询中…'),
