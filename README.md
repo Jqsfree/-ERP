@@ -16,11 +16,12 @@
 - 销售记录导出两份 UTF-8 BOM CSV（销售单、销售明细）供 Excel/WPS 查阅（不是 XLSX）；整单金额不在每条明细上重复。
 - 草稿保存在 SQLite `sale_drafts` 中；停顿约 650ms 自动写入、支持手动保存和重新进入恢复。
 - 数据库 schema v2，支持 v1->v2 的非破坏性迁移，测试中使用独立 SQLite 文件验证 IO、事务、重开与收款。
+- **本轮验证中的功能**：用户主动导出 AES-256-GCM 加密 `.kberp` 数据备份；恢复前校验账务一致性，只允许在全空 SQLite 数据库恢复。尚未完成真机验证。
 - UI 通过 DatabaseScope 注入存储依赖，输出 CSV 与设备分享 IO 分离。
 
 ## 尚未实现
 
-采购、供应商、实际库存流水与扣减、退货、费用收支、订单作废/修订、**离机备份与恢复**、多设备同步、多角色权限、发票税务处理、商业打印版式与设备验收。仅有 v1->v2 数据库迁移，不代表已有独立备份。
+采购、供应商、实际库存流水与扣减、退货、费用收支、订单作废/修订、自动备份与全量恢复演练、多设备同步、多角色权限、发票税务处理、商业打印版式与设备验收。**加密备份导出/空库导入已有代码和自动化测试，但真实 Android 文件分享/选取仍待设备验证。**
 
 **重要**：当前只写销售流水，**不会自动扣减库存**。不要把此应用当成已验收的正式 ERP。安装卸载或清除应用数据可能丢失本地数据；测试时勿录入唯一一份真实商业数据。
 
@@ -44,6 +45,29 @@ flutter build apk --debug
 ```
 
 Github Actions 工作流 `.github/workflows/android.yml` 会在每次 push / PR 时重新生成 Android 工程、测试并上传可安装测试包。**Debug APK 只用于内部验证，正式投产需要独立签名、备份与发布策略。**
+
+## Ubuntu 主开发机（FVM + 安卓真机）
+
+本轮 `.fvmrc` 固定 Flutter 3.47.9。项目依赖独立于 SDK 安装位置，在 Ubuntu 运行：
+
+```bash
+git fetch origin --prune
+git switch --track origin/feat/ubuntu-device-foundation-20261107
+bash scripts/doctor.sh
+bash scripts/bootstrap-ubuntu.sh
+fvm flutter test
+fvm flutter analyze
+fvm flutter build apk --debug
+fvm flutter devices
+fvm flutter run -d <设备ID>
+fvm flutter test integration_test/storage_device_test.dart -d <设备ID>
+```
+
+如本地已创建过开发分支，使用 `git switch feat/ubuntu-device-foundation-20261107` 和 `git pull --ff-only`。切换分支前检查未提交文件。本仓库目前仍动态生成 `android/`，Gradle Wrapper 尚待纳入版本控制，不能称为完整的可复现原生构建。
+
+**数据备份**：首页右上角“数据备份与恢复”允许导出带密码的 `.kberp` 文件、从系统文件选择器选择后恢复到**完全空**的数据库。密码至少 12 字符且无法找回；用户必须确认文件实际保存到了手机外部。没有任何现有数据会被覆盖。真机数据完整性及分享流程尚待验收。
+
+完整执行与验证见 [Ubuntu/设备及备份手册](docs/ubuntu-device-and-backup-2026-11-07.md)。
 
 ## 业务数据与计算
 
