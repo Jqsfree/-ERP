@@ -144,7 +144,7 @@ void main() {
     expect(find.text('停用'), findsOneWidget);
   });
 
-  testWidgets('采购单 UI 输入两行面积和价格，正确生成采购承诺，不动销售', (tester) async {
+  testWidgets('采购单 UI 输入一行面积和价格，正确生成采购承诺，不动销售', (tester) async {
     tester.view.physicalSize = const Size(1200, 1800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);

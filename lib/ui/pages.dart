@@ -363,8 +363,10 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
     _draftDebounce = Timer(const Duration(milliseconds: 650), () {
       if (!mounted || _saving) return;
       unawaited(_persistDraft().catchError((Object e) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('草稿保存失败：$e')));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('草稿保存失败：$e')));
+        }
       }));
     });
   }
@@ -373,8 +375,10 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
     _draftDebounce?.cancel();
     try {
       await _persistDraft();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('草稿已写入本机数据库')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('草稿已写入本机数据库')));
+      }
     } catch (e) {
       if (mounted) await _error(context, e);
     }
@@ -427,8 +431,10 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
         }
       }
       setState(() { _customers = customers; _products = products; _loading = false; });
-      if (draftError && mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('草稿无法解析，原始数据已保留在本机')));
+      if (draftError && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('草稿无法解析，原始数据已保留在本机')));
+      }
     } catch (e) { if (mounted) { setState(() => _loading = false); await _error(context, e); } }
   }
 
