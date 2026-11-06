@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:kaibao_sales/data/app_database.dart';
 import 'package:kaibao_sales/domain/models.dart';
+import 'package:kaibao_sales/domain/procurement.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
@@ -32,6 +33,13 @@ void main() {
         discountCents: 36, initialReceivedCents: 50000);
       expect((await store.saleById(id))!.payableCents, 144900);
       expect(await store.loadDraft(), isNull);
+      await store.addSupplier(const Supplier(name: '设备测试供应商'));
+      final supplier = (await store.suppliers()).single;
+      final purchaseId = await store.createPurchaseOrder(
+        supplierId: supplier.id!,
+        lines: [PurchaseLine(productId: product.id!, code: product.code,
+          lengthMilli: 1000, widthMilli: 2800, unitCostCents: 1000)]);
+      expect((await store.purchaseOrderById(purchaseId))!.totalCents, 2800);
       expect(await store.integrityOk(), isTrue);
       await store.close();
 
@@ -41,6 +49,8 @@ void main() {
         final sale = (await reopened.sales()).single;
         expect(sale.number, 'XS202611070001');
         expect(sale.currentDueCents, 94900);
+        expect((await reopened.suppliers()).single.name, '设备测试供应商');
+        expect((await reopened.purchaseOrders()).single.totalCents, 2800);
         expect(await reopened.customerOutstanding(customer.id!), 95400);
         expect(await reopened.integrityOk(), isTrue);
       } finally {
