@@ -3,9 +3,11 @@ import 'package:sqflite/sqflite.dart';
 
 import '../domain/models.dart';
 import '../application/sales_store.dart';
+import '../application/backup_store.dart';
+import 'backup_snapshot.dart';
 import '../domain/money.dart';
 
-class AppDatabase implements SalesStore {
+class AppDatabase implements SalesStore, BackupStore {
   AppDatabase._({DatabaseFactory? factory, String? databasePath, DateTime Function()? clock})
       : _factory = factory, _databasePath = databasePath, _clock = clock ?? DateTime.now;
 
@@ -265,6 +267,49 @@ class AppDatabase implements SalesStore {
         'sale_id': sale.id, 'amount_cents': amountCents,
         'method': method, 'remark': '', 'created_at': _clock().toIso8601String(),
       });
+    });
+  }
+
+  /// A single SQLite transaction supplies a consistent multi-table snapshot.
+  /// Do not copy only the main DB file: SQLite may be in WAL mode.
+  @override
+  Future<String> exportSnapshotJson() async {
+    final database = await db;
+    final snapshot = await database.transaction((tx) async {
+      final tables = <String, List<Map<String, Object?>>>{};
+      for (final table in BackupSnapshot.columns.keys) {
+        final rows = await tx.query(table, orderBy: 'id');
+        tables[table] = rows.map((row) => Map<String, Object?>.from(row)).toList();
+      }
+      return BackupSnapshot.create(tables, _clock());
+    });
+    return snapshot.encode();
+  }
+
+  /// Restore is append-only into a virgin database; existing records are NEVER
+  /// replaced. Any failure rolls back the entire import.
+  @override
+  Future<void> restoreSnapshotJson(String plaintextSnapshot) async {
+    final snapshot = BackupSnapshot.parse(plaintextSnapshot);
+    final database = await db;
+    await database.transaction((tx) async {
+      for (final table in BackupSnapshot.columns.keys) {
+        final count = await tx.rawQuery('SELECT COUNT(*) AS n FROM $table');
+        if ((count.single['n'] as int) != 0) {
+          throw StateError('本机已有数据，禁止覆盖恢复；请使用全新空数据库');
+        }
+      }
+      for (final table in BackupSnapshot.columns.keys) {
+        for (final row in snapshot.rows[table]!) {
+          await tx.insert(table, row, conflictAlgorithm: ConflictAlgorithm.abort);
+        }
+      }
+      final fk = await tx.rawQuery('PRAGMA foreign_key_check');
+      if (fk.isNotEmpty) throw StateError('备份恢复后的外键检查失败');
+      final integrity = await tx.rawQuery('PRAGMA integrity_check');
+      if (integrity.length != 1 || integrity.single.values.single != 'ok') {
+        throw StateError('备份恢复后的完整性检查失败');
+      }
     });
   }
 
