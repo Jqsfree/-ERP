@@ -1,0 +1,36 @@
+name: Android debug build
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate native Android runner (no overwrite of Dart code)
+        run: flutter create --platforms=android --project-name kaibao_sales --org com.kaibao .
+      - name: Get dependencies
+        run: flutter pub get
+      - name: Dart tests
+        run: flutter test
+      - name: Static analysis
+        run: flutter analyze --no-fatal-infos
+      - name: Build Android debug APK
+        run: flutter build apk --debug
+      - name: Upload installable debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaibao-sales-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
