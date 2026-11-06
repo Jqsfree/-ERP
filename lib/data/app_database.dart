@@ -5,15 +5,29 @@ import '../domain/models.dart';
 import '../domain/money.dart';
 
 class AppDatabase {
-  AppDatabase._();
-  static final AppDatabase instance = AppDatabase._();
-  Database? _database;
+  AppDatabase._({DatabaseFactory? factory, String? databasePath, DateTime Function()? clock})
+      : _factory = factory, _databasePath = databasePath, _clock = clock ?? DateTime.now;
 
-  Future<Database> get db async {
-    if (_database != null) return _database!;
-    _database = await openDatabase(
-      p.join(await getDatabasesPath(), 'kaibao_sales.db'),
-      version: 1,
+  /// Testable independent database; production keeps the Android sqflite plugin.
+  AppDatabase.forTesting({required DatabaseFactory factory, required String databasePath,
+      DateTime Function()? clock})
+      : this._(factory: factory, databasePath: databasePath, clock: clock);
+
+  static final AppDatabase instance = AppDatabase._();
+  static const schemaVersion = 2;
+  final DatabaseFactory? _factory;
+  final String? _databasePath;
+  final DateTime Function() _clock;
+  Future<Database>? _opening;
+
+  Future<Database> get db => _opening ??= _open();
+
+  Future<Database> _open() async {
+    final path = _databasePath ?? p.join(await getDatabasesPath(), 'kaibao_sales.db');
+    return (_factory ?? databaseFactory).openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+      version: schemaVersion,
       onConfigure: (db) async => db.execute('PRAGMA foreign_keys=ON'),
       onCreate: (db, version) async {
         await db.execute('''CREATE TABLE customers (
@@ -56,9 +70,48 @@ class AppDatabase {
         )''');
         await db.execute('CREATE INDEX idx_sales_customer ON sales(customer_id, status)');
         await db.execute('CREATE INDEX idx_payments_sale ON payments(sale_id)');
+        await db.execute(_draftSchema);
       },
+      onUpgrade: (db, from, to) async {
+        if (from < 2) await db.execute(_draftSchema);
+      },
+      ),
     );
-    return _database!;
+  }
+
+  static const _draftSchema = '''CREATE TABLE sale_drafts (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    payload TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )''';
+
+  /// Operational drafts are persisted in SQLite, NOT a second cache of balances.
+  /// A single-device P0 editor has only one active draft.
+  Future<void> saveDraft(String jsonPayload) async {
+    if (jsonPayload.trim().isEmpty) throw ArgumentError('草稿不能为空');
+    final database = await db;
+    await database.insert('sale_drafts', {
+      'id': 1, 'payload': jsonPayload, 'updated_at': _clock().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<String?> loadDraft() async {
+    final rows = await (await db).query('sale_drafts', columns: ['payload'],
+      where: 'id = ?', whereArgs: [1], limit: 1);
+    return rows.isEmpty ? null : rows.first['payload'] as String;
+  }
+
+  Future<void> deleteDraft() async {
+    await (await db).delete('sale_drafts', where: 'id = ?', whereArgs: [1]);
+  }
+
+  /// Used for diagnostics, not a substitute for off-device backups.
+  Future<bool> integrityOk() async {
+    final database = await db;
+    final integrity = await database.rawQuery('PRAGMA integrity_check');
+    final foreignKeys = await database.rawQuery('PRAGMA foreign_key_check');
+    return integrity.length == 1 &&
+      integrity.first.values.single == 'ok' && foreignKeys.isEmpty;
   }
 
   Future<List<Customer>> customers() async {
@@ -117,7 +170,7 @@ class AppDatabase {
     }
     return (await db).transaction((tx) async {
       final priorDue = await customerOutstanding(customer.id!, tx: tx);
-      final now = DateTime.now();
+      final now = _clock();
       final date = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
       final prefix = 'XS${date.replaceAll('-', '')}';
       final last = await tx.rawQuery(
@@ -147,21 +200,43 @@ class AppDatabase {
           'method': '其他', 'remark': '开单收款', 'created_at': now.toIso8601String(),
         });
       }
+      // The order and the draft removal commit or roll back together.
+      await tx.delete('sale_drafts', where: 'id = ?', whereArgs: [1]);
       return saleId;
     });
   }
 
-  Future<List<Sale>> sales() async {
-    final rows = await (await db).rawQuery('''
-      SELECT s.*, COALESCE((SELECT SUM(p.amount_cents) FROM payments p WHERE p.sale_id=s.id),0) AS paid
-      FROM sales s ORDER BY s.id DESC
-    ''');
+  Future<List<Sale>> sales() => _loadSales();
+
+  Future<Sale?> saleById(int id) async {
+    final items = await _loadSales(saleId: id);
+    return items.isEmpty ? null : items.single;
+  }
+
+  /// Two main queries instead of N+1; chunks keep IN clause under SQLite limits.
+  Future<List<Sale>> _loadSales({int? saleId}) async {
     final database = await db;
-    final results = <Sale>[];
-    for (final row in rows) {
-      final lines = await database.query('sale_lines', where: 'sale_id=?', whereArgs: [row['id']], orderBy: 'id');
-      results.add(Sale(
-        id: row['id'] as int, number: row['number'] as String, date: row['date'] as String,
+    final rows = await database.rawQuery('''
+      SELECT s.*, COALESCE((SELECT SUM(p.amount_cents) FROM payments p WHERE p.sale_id=s.id),0) AS paid
+      FROM sales s ${saleId == null ? '' : 'WHERE s.id = ?'} ORDER BY s.id DESC
+    ''', saleId == null ? [] : [saleId]);
+    if (rows.isEmpty) return [];
+    final linesBySale = <int, List<SaleLine>>{};
+    final ids = rows.map((r) => r['id'] as int).toList();
+    for (var offset = 0; offset < ids.length; offset += 400) {
+      final chunk = ids.skip(offset).take(400).toList();
+      final placeholders = List.filled(chunk.length, '?').join(',');
+      final details = await database.rawQuery(
+        'SELECT * FROM sale_lines WHERE sale_id IN ($placeholders) ORDER BY sale_id, id',
+        chunk);
+      for (final detail in details) {
+        (linesBySale[detail['sale_id'] as int] ??= []).add(SaleLine.fromMap(detail));
+      }
+    }
+    return rows.map((row) {
+      final id = row['id'] as int;
+      return Sale(
+        id: id, number: row['number'] as String, date: row['date'] as String,
         customerId: row['customer_id'] as int,
         customerName: row['customer_name_snapshot'] as String,
         customerPhone: row['customer_phone_snapshot'] as String,
@@ -171,10 +246,9 @@ class AppDatabase {
         priorDueCents: row['prior_due_snapshot'] as int,
         receivedCents: row['paid'] as int,
         status: row['status'] as String, note: row['note'] as String,
-        lines: lines.map(SaleLine.fromMap).toList(),
-      ));
-    }
-    return results;
+        lines: linesBySale[id] ?? [],
+      );
+    }).toList();
   }
 
   Future<void> addPayment(Sale sale, int amountCents, {String method = '其他'}) async {
@@ -188,10 +262,14 @@ class AppDatabase {
       if (amountCents > (r.first['due'] as int)) throw ArgumentError('收款超过剩余应收款');
       await tx.insert('payments', {
         'sale_id': sale.id, 'amount_cents': amountCents,
-        'method': method, 'remark': '', 'created_at': DateTime.now().toIso8601String(),
+        'method': method, 'remark': '', 'created_at': _clock().toIso8601String(),
       });
     });
   }
 
-  Future<void> close() async { await _database?.close(); _database = null; }
+  Future<void> close() async {
+    final opening = _opening;
+    _opening = null;
+    if (opening != null) await (await opening).close();
+  }
 }
