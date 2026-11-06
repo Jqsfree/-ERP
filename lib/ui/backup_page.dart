@@ -24,7 +24,6 @@ class _BackupPageState extends State<BackupPage> {
 
   Future<String?> _askPassword({required bool forExport}) {
     var password = '';
-    var confirmation = '';
     final key = GlobalKey<FormState>();
     return showDialog<String>(
       context: context,
@@ -53,7 +52,6 @@ class _BackupPageState extends State<BackupPage> {
                 enableSuggestions: false,
                 autocorrect: false,
                 decoration: const InputDecoration(labelText: '再次输入密码'),
-                onChanged: (v) => confirmation = v,
                 validator: (v) => v != password ? '两次密码不一致' : null),
             ],
           ],
