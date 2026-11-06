@@ -30,6 +30,11 @@ jobs:
         run: flutter create --platforms=android --project-name kaibao_sales --org com.kaibao .
       - name: Get dependencies
         run: flutter pub get
+      - name: Export generated dependency lock for review
+        run: |
+          echo 'KAIBAO_LOCKFILE_BEGIN'
+          cat pubspec.lock
+          echo 'KAIBAO_LOCKFILE_END'
       - name: Dart tests
         run: flutter test --reporter expanded --coverage
       - name: Upload test coverage
