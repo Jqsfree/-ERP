@@ -369,7 +369,7 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
   void dispose() {
     _draftDebounce?.cancel();
     _discount.dispose(); _received.dispose(); _note.dispose();
-    for (final line in _lines) line.dispose();
+    for (final line in _lines) { line.dispose(); }
     super.dispose();
   }
 
@@ -393,16 +393,17 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
     if (_customerId == null) { await _error(context, ArgumentError('请先选择客户')); return; }
     setState(() => _saving = true);
     _draftDebounce?.cancel();
+    final database = DatabaseScope.of(context);
     try {
       await _draftWrites;
       final customer = _customers.firstWhere((c) => c.id == _customerId);
-      final id = await DatabaseScope.of(context).createSale(
+      final id = await database.createSale(
         customer: customer, lines: _lines.map((e) => e.toLine()).toList(),
         discountCents: Fixed.parse(_discount.text, decimals: 2),
         initialReceivedCents: Fixed.parse(_received.text, decimals: 2),
         note: _note.text,
       );
-      final sale = await DatabaseScope.of(context).saleById(id);
+      final sale = await database.saleById(id);
       if (!mounted) return;
       if (sale == null) {
         Navigator.pop(context);
@@ -620,6 +621,7 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
   bool _busy = false;
 
   Future<void> _receive() async {
+    final database = DatabaseScope.of(context);
     final amount = TextEditingController(text: Fixed.format(_sale.currentDueCents, decimals: 2));
     final method = ValueNotifier<String>('微信');
     try {
@@ -645,8 +647,8 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
       ));
       if (confirmed != true) return;
       setState(() => _busy = true);
-      await DatabaseScope.of(context).addPayment(_sale, Fixed.parse(amount.text, decimals: 2), method: method.value);
-      final updated = await DatabaseScope.of(context).saleById(_sale.id);
+      await database.addPayment(_sale, Fixed.parse(amount.text, decimals: 2), method: method.value);
+      final updated = await database.saleById(_sale.id);
       if (updated == null) throw StateError('收款已入账，但刷新单据失败，请检查历史记录');
       if (mounted) {
         setState(() => _sale = updated);
