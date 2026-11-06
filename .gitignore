@@ -1,3 +1,5 @@
+# Local toolchains and generated files
+.fvm/
 .dart_tool/
 .flutter-plugins*
 .packages

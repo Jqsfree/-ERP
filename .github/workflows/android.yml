@@ -15,6 +15,11 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+      - name: Check project Flutter version
+        run: |
+          grep -q '"flutter": "3.47.9"' .fvmrc
+      - name: Shell script syntax
+        run: bash -n scripts/doctor.sh scripts/bootstrap-ubuntu.sh
       - name: Install Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -23,8 +28,10 @@ jobs:
           cache: true
       - name: Generate native Android runner (no overwrite of Dart code)
         run: flutter create --platforms=android --project-name kaibao_sales --org com.kaibao .
-      - name: Get dependencies
-        run: flutter pub get
+      - name: Get locked dependencies
+        run: |
+          flutter pub get --enforce-lockfile
+          git diff --exit-code -- pubspec.lock
       - name: Dart tests
         run: flutter test --reporter expanded --coverage
       - name: Upload test coverage

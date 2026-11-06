@@ -3,9 +3,11 @@ import 'package:sqflite/sqflite.dart';
 
 import '../domain/models.dart';
 import '../application/sales_store.dart';
+import '../application/backup_store.dart';
+import 'backup_snapshot.dart';
 import '../domain/money.dart';
 
-class AppDatabase implements SalesStore {
+class AppDatabase implements SalesStore, BackupStore {
   AppDatabase._({DatabaseFactory? factory, String? databasePath, DateTime Function()? clock})
       : _factory = factory, _databasePath = databasePath, _clock = clock ?? DateTime.now;
 
@@ -88,6 +90,7 @@ class AppDatabase implements SalesStore {
 
   /// Operational drafts are persisted in SQLite, NOT a second cache of balances.
   /// A single-device P0 editor has only one active draft.
+  @override
   Future<void> saveDraft(String jsonPayload) async {
     if (jsonPayload.trim().isEmpty) throw ArgumentError('草稿不能为空');
     final database = await db;
@@ -96,12 +99,14 @@ class AppDatabase implements SalesStore {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  @override
   Future<String?> loadDraft() async {
     final rows = await (await db).query('sale_drafts', columns: ['payload'],
       where: 'id = ?', whereArgs: [1], limit: 1);
     return rows.isEmpty ? null : rows.first['payload'] as String;
   }
 
+  @override
   Future<void> deleteDraft() async {
     await (await db).delete('sale_drafts', where: 'id = ?', whereArgs: [1]);
   }
@@ -115,11 +120,13 @@ class AppDatabase implements SalesStore {
       integrity.first.values.single == 'ok' && foreignKeys.isEmpty;
   }
 
+  @override
   Future<List<Customer>> customers() async {
     final rows = await (await db).query('customers', orderBy: 'name COLLATE NOCASE');
     return rows.map(Customer.fromMap).toList();
   }
 
+  @override
   Future<void> addCustomer(Customer item) async {
     if (item.name.trim().isEmpty) throw ArgumentError('客户名称不能为空');
     await (await db).insert('customers', {
@@ -128,11 +135,13 @@ class AppDatabase implements SalesStore {
     });
   }
 
+  @override
   Future<List<Product>> products() async {
     final rows = await (await db).query('products', orderBy: 'code COLLATE NOCASE');
     return rows.map(Product.fromMap).toList();
   }
 
+  @override
   Future<void> addProduct(Product item) async {
     if (item.code.trim().isEmpty) throw ArgumentError('产品型号不能为空');
     await (await db).insert('products', {
@@ -141,6 +150,7 @@ class AppDatabase implements SalesStore {
     });
   }
 
+  @override
   Future<int> customerOutstanding(int customerId, {Transaction? tx}) async {
     final database = tx ?? await db;
     final customers = await database.query('customers', where: 'id=?', whereArgs: [customerId]);
@@ -156,6 +166,7 @@ class AppDatabase implements SalesStore {
 
   /// Creates a confirmed invoice in one SQLite transaction.
   /// Serial is allocated inside the transaction to prevent duplicate numbers.
+  @override
   Future<int> createSale({required Customer customer, required List<SaleLine> lines,
     required int discountCents, required int initialReceivedCents, String note = ''}) async {
     if (customer.id == null) throw ArgumentError('请选择已保存的客户');
@@ -207,8 +218,10 @@ class AppDatabase implements SalesStore {
     });
   }
 
+  @override
   Future<List<Sale>> sales() => _loadSales();
 
+  @override
   Future<Sale?> saleById(int id) async {
     final items = await _loadSales(saleId: id);
     return items.isEmpty ? null : items.single;
@@ -252,6 +265,7 @@ class AppDatabase implements SalesStore {
     }).toList();
   }
 
+  @override
   Future<void> addPayment(Sale sale, int amountCents, {String method = '其他'}) async {
     if (amountCents <= 0) throw ArgumentError('收款金额必须大于零');
     await (await db).transaction((tx) async {
@@ -265,6 +279,49 @@ class AppDatabase implements SalesStore {
         'sale_id': sale.id, 'amount_cents': amountCents,
         'method': method, 'remark': '', 'created_at': _clock().toIso8601String(),
       });
+    });
+  }
+
+  /// A single SQLite transaction supplies a consistent multi-table snapshot.
+  /// Do not copy only the main DB file: SQLite may be in WAL mode.
+  @override
+  Future<String> exportSnapshotJson() async {
+    final database = await db;
+    final snapshot = await database.transaction((tx) async {
+      final tables = <String, List<Map<String, Object?>>>{};
+      for (final table in BackupSnapshot.columns.keys) {
+        final rows = await tx.query(table, orderBy: 'id');
+        tables[table] = rows.map((row) => Map<String, Object?>.from(row)).toList();
+      }
+      return BackupSnapshot.create(tables, _clock());
+    });
+    return snapshot.encode();
+  }
+
+  /// Restore is append-only into a virgin database; existing records are NEVER
+  /// replaced. Any failure rolls back the entire import.
+  @override
+  Future<void> restoreSnapshotJson(String plaintextSnapshot) async {
+    final snapshot = BackupSnapshot.parse(plaintextSnapshot);
+    final database = await db;
+    await database.transaction((tx) async {
+      for (final table in BackupSnapshot.columns.keys) {
+        final count = await tx.rawQuery('SELECT COUNT(*) AS n FROM $table');
+        if ((count.single['n'] as int) != 0) {
+          throw StateError('本机已有数据，禁止覆盖恢复；请使用全新空数据库');
+        }
+      }
+      for (final table in BackupSnapshot.columns.keys) {
+        for (final row in snapshot.rows[table]!) {
+          await tx.insert(table, row, conflictAlgorithm: ConflictAlgorithm.abort);
+        }
+      }
+      final fk = await tx.rawQuery('PRAGMA foreign_key_check');
+      if (fk.isNotEmpty) throw StateError('备份恢复后的外键检查失败');
+      final integrity = await tx.rawQuery('PRAGMA integrity_check');
+      if (integrity.length != 1 || integrity.single.values.single != 'ok') {
+        throw StateError('备份恢复后的完整性检查失败');
+      }
     });
   }
 
