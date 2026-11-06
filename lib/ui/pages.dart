@@ -5,7 +5,6 @@ import 'dart:io';
 import 'dart:convert';
 import 'dart:async';
 
-import '../data/app_database.dart';
 import 'database_scope.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
