@@ -133,12 +133,15 @@ void main() {
 
     await tester.enterText(find.widgetWithText(TextFormField, '米数 *'), '37');
     await tester.scrollUntilVisible(
-      find.widgetWithText(TextFormField, '优惠金额（元）'), 200.0);
+      find.widgetWithText(TextFormField, '优惠金额（元）'), 200.0,
+      scrollable: find.byType(Scrollable).first);
     await tester.enterText(find.widgetWithText(TextFormField, '优惠金额（元）'), '0.36');
     await tester.scrollUntilVisible(
-      find.widgetWithText(TextFormField, '开单已收款（元）'), 200.0);
+      find.widgetWithText(TextFormField, '开单已收款（元）'), 200.0,
+      scrollable: find.byType(Scrollable).first);
     await tester.enterText(find.widgetWithText(TextFormField, '开单已收款（元）'), '500');
-    await tester.scrollUntilVisible(find.text('确认销售并保存'), 200.0);
+    await tester.scrollUntilVisible(find.text('确认销售并保存'), 200.0,
+      scrollable: find.byType(Scrollable).first);
     await tester.tap(find.text('确认销售并保存'));
     await tester.pumpAndSettle();
 
