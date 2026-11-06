@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'data/app_database.dart';
+import 'application/sales_store.dart';
 import 'ui/pages.dart';
+import 'ui/database_scope.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -9,9 +11,12 @@ Future<void> main() async {
 }
 
 class KaibaoApp extends StatelessWidget {
-  const KaibaoApp({super.key});
+  const KaibaoApp({super.key, this.database});
+  final SalesStore? database;
   @override
-  Widget build(BuildContext context) => MaterialApp(
+  Widget build(BuildContext context) => DatabaseScope(
+    database: database ?? AppDatabase.instance,
+    child: MaterialApp(
     title: '凯堡软装',
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
@@ -22,5 +27,5 @@ class KaibaoApp extends StatelessWidget {
         contentPadding: EdgeInsets.symmetric(vertical: 11, horizontal: 12)),
     ),
     home: const HomePage(),
-  );
+  ));
 }

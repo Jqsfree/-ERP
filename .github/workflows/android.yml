@@ -4,6 +4,9 @@ on:
     branches: ['**']
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -16,13 +19,22 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.9'
           cache: true
       - name: Generate native Android runner (no overwrite of Dart code)
         run: flutter create --platforms=android --project-name kaibao_sales --org com.kaibao .
       - name: Get dependencies
         run: flutter pub get
       - name: Dart tests
-        run: flutter test
+        run: flutter test --reporter expanded --coverage
+      - name: Upload test coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaibao-test-coverage
+          path: coverage/lcov.info
+          if-no-files-found: warn
+          retention-days: 14
       - name: Static analysis
         run: flutter analyze --no-fatal-infos
       - name: Build Android debug APK

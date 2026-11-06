@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
+import 'dart:convert';
+import 'dart:async';
 
-import '../data/app_database.dart';
+import 'database_scope.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
 import '../services/invoice_pdf.dart';
+import '../services/sales_csv.dart';
 
 const _brand = '凯堡软装';
 
@@ -78,43 +81,75 @@ class CustomersPage extends StatefulWidget {
 }
 
 class _CustomersPageState extends State<CustomersPage> {
-  late Future<List<Customer>> _items = AppDatabase.instance.customers();
-  void _refresh() => setState(() => _items = AppDatabase.instance.customers());
+  late Future<List<Customer>> _items;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _items = DatabaseScope.of(context).customers();
+  }
+  void _refresh() {
+    final pending = DatabaseScope.of(context).customers();
+    setState(() { _items = pending; });
+  }
 
   Future<void> _create() async {
-    final name = TextEditingController(), phone = TextEditingController(),
-      address = TextEditingController(), balance = TextEditingController(text: '0');
+    final database = DatabaseScope.of(context);
     final formKey = GlobalKey<FormState>();
-    try {
-      final saved = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+    var name = '';
+    var phone = '';
+    var address = '';
+    var balance = '0';
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
         title: const Text('新增客户'),
-        content: SizedBox(width: 380, child: Form(key: formKey, child: SingleChildScrollView(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextFormField(controller: name, decoration: const InputDecoration(labelText: '客户名称 *'),
-              validator: (v) => v == null || v.trim().isEmpty ? '必填' : null),
-            const SizedBox(height: 12),
-            TextField(controller: phone, decoration: const InputDecoration(labelText: '联系电话')),
-            const SizedBox(height: 12),
-            TextField(controller: address, decoration: const InputDecoration(labelText: '收货地址')),
-            const SizedBox(height: 12),
-            TextField(controller: balance, decoration: const InputDecoration(labelText: '初始欠款（元）'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true)),
-          ])))),
+        content: SizedBox(width: 380, child: Form(
+          key: formKey,
+          child: SingleChildScrollView(child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                decoration: const InputDecoration(labelText: '客户名称 *'),
+                onChanged: (v) => name = v,
+                validator: (v) => v == null || v.trim().isEmpty ? '必填' : null),
+              const SizedBox(height: 12),
+              TextFormField(
+                decoration: const InputDecoration(labelText: '联系电话'),
+                onChanged: (v) => phone = v),
+              const SizedBox(height: 12),
+              TextFormField(
+                decoration: const InputDecoration(labelText: '收货地址'),
+                onChanged: (v) => address = v),
+              const SizedBox(height: 12),
+              TextFormField(
+                initialValue: '0',
+                decoration: const InputDecoration(labelText: '初始欠款（元）'),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (v) => balance = v),
+            ],
+          )),
+        )),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          FilledButton(onPressed: () async {
-            if (!formKey.currentState!.validate()) return;
-            try {
-              await AppDatabase.instance.addCustomer(Customer(
-                name: name.text, phone: phone.text, address: address.text,
-                openingBalanceCents: Fixed.parse(balance.text, decimals: 2)));
-              if (ctx.mounted) Navigator.pop(ctx, true);
-            } catch (e) { if (ctx.mounted) await _error(ctx, e); }
-          }, child: const Text('保存')),
+          FilledButton(
+            onPressed: () async {
+              if (!formKey.currentState!.validate()) return;
+              try {
+                await database.addCustomer(Customer(
+                  name: name, phone: phone, address: address,
+                  openingBalanceCents: Fixed.parse(balance, decimals: 2),
+                ));
+                if (ctx.mounted) Navigator.pop(ctx, true);
+              } catch (e) {
+                if (ctx.mounted) await _error(ctx, e);
+              }
+            },
+            child: const Text('保存'),
+          ),
         ],
-      ));
-      if (saved == true) _refresh();
-    } finally { name.dispose(); phone.dispose(); address.dispose(); balance.dispose(); }
+      ),
+    );
+    if (saved == true && mounted) _refresh();
   }
 
   @override
@@ -128,7 +163,7 @@ class _CustomersPageState extends State<CustomersPage> {
       return ListView.builder(itemCount: snapshot.data!.length, itemBuilder: (context, i) {
         final c = snapshot.data![i];
         return ListTile(title: Text(c.name), subtitle: Text('${c.phone}  ${c.address}'),
-          trailing: FutureBuilder<int>(future: AppDatabase.instance.customerOutstanding(c.id!),
+          trailing: FutureBuilder<int>(future: DatabaseScope.of(context).customerOutstanding(c.id!),
             builder: (context, s) => Text(s.hasData ? '欠款 ¥${Fixed.format(s.data!, decimals: 2)}' : '…')));
       });
     }),
@@ -142,41 +177,70 @@ class ProductsPage extends StatefulWidget {
 }
 
 class _ProductsPageState extends State<ProductsPage> {
-  late Future<List<Product>> _items = AppDatabase.instance.products();
-  void _refresh() => setState(() => _items = AppDatabase.instance.products());
+  late Future<List<Product>> _items;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _items = DatabaseScope.of(context).products();
+  }
+  void _refresh() {
+    final pending = DatabaseScope.of(context).products();
+    setState(() { _items = pending; });
+  }
 
   Future<void> _create() async {
-    final code = TextEditingController(), spec = TextEditingController(), price = TextEditingController();
+    final database = DatabaseScope.of(context);
     final formKey = GlobalKey<FormState>();
-    try {
-      final saved = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+    var code = '';
+    var spec = '';
+    var price = '';
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
         title: const Text('新增产品'),
-        content: SizedBox(width: 380, child: Form(key: formKey, child: Column(mainAxisSize: MainAxisSize.min,
-          children: [
-            TextFormField(controller: code, decoration: const InputDecoration(labelText: '产品型号 *'),
-              validator: (v) => v == null || v.trim().isEmpty ? '必填' : null),
-            const SizedBox(height: 12),
-            TextField(controller: spec, decoration: const InputDecoration(labelText: '规格型号（可空）')),
-            const SizedBox(height: 12),
-            TextFormField(controller: price,
-              decoration: const InputDecoration(labelText: '默认单价（元/平方米）*'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) => v == null || v.isEmpty ? '必填' : null),
-          ]))),
+        content: SizedBox(width: 380, child: Form(
+          key: formKey,
+          child: SingleChildScrollView(child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                decoration: const InputDecoration(labelText: '产品型号 *'),
+                onChanged: (v) => code = v,
+                validator: (v) => v == null || v.trim().isEmpty ? '必填' : null),
+              const SizedBox(height: 12),
+              TextFormField(
+                decoration: const InputDecoration(labelText: '规格型号（可空）'),
+                onChanged: (v) => spec = v),
+              const SizedBox(height: 12),
+              TextFormField(
+                decoration: const InputDecoration(labelText: '默认单价（元/平方米）*'),
+                onChanged: (v) => price = v,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                validator: (v) => v == null || v.isEmpty ? '必填' : null),
+            ],
+          )),
+        )),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          FilledButton(onPressed: () async {
-            if (!formKey.currentState!.validate()) return;
-            try {
-              await AppDatabase.instance.addProduct(Product(code: code.text, specification: spec.text,
-                unitPriceCents: Fixed.parse(price.text, decimals: 2)));
-              if (ctx.mounted) Navigator.pop(ctx, true);
-            } catch (e) { if (ctx.mounted) await _error(ctx, e); }
-          }, child: const Text('保存')),
+          FilledButton(
+            onPressed: () async {
+              if (!formKey.currentState!.validate()) return;
+              try {
+                await database.addProduct(Product(
+                  code: code, specification: spec,
+                  unitPriceCents: Fixed.parse(price, decimals: 2),
+                ));
+                if (ctx.mounted) Navigator.pop(ctx, true);
+              } catch (e) {
+                if (ctx.mounted) await _error(ctx, e);
+              }
+            },
+            child: const Text('保存'),
+          ),
         ],
-      ));
-      if (saved == true) _refresh();
-    } finally { code.dispose(); spec.dispose(); price.dispose(); }
+      ),
+    );
+    if (saved == true && mounted) _refresh();
   }
 
   @override
@@ -197,6 +261,7 @@ class _ProductsPageState extends State<ProductsPage> {
 }
 
 class _LineForm {
+  _LineForm();
   final code = TextEditingController();
   final spec = TextEditingController();
   final length = TextEditingController();
@@ -209,6 +274,24 @@ class _LineForm {
     code.text = product.code;
     spec.text = product.specification;
     price.text = Fixed.format(product.unitPriceCents, decimals: 2);
+  }
+  Map<String, Object?> toDraftJson() => {
+    'productId': productId, 'code': code.text, 'spec': spec.text,
+    'length': length.text, 'width': width.text, 'price': price.text,
+    'note': note.text,
+  };
+  factory _LineForm.fromDraftJson(Map<String, dynamic> json) {
+    String val(String key, [String fallback = '']) =>
+        json[key] is String ? json[key] as String : fallback;
+    final form = _LineForm();
+    form.productId = json['productId'] is int ? json['productId'] as int : null;
+    form.code.text = val('code');
+    form.spec.text = val('spec');
+    form.length.text = val('length');
+    form.width.text = val('width', '2.8');
+    form.price.text = val('price');
+    form.note.text = val('note');
+    return form;
   }
   SaleLine toLine() => SaleLine(
     productId: productId, code: code.text.trim(), specification: spec.text.trim(),
@@ -240,23 +323,104 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
   int? _customerId;
   bool _saving = false;
   bool _loading = true;
+  Timer? _draftDebounce;
+  Future<void> _draftWrites = Future<void>.value();
 
+  String _draftPayload() => jsonEncode({
+    'schema': 1, 'customerId': _customerId, 'discount': _discount.text,
+    'received': _received.text, 'note': _note.text,
+    'lines': _lines.map((line) => line.toDraftJson()).toList(),
+  });
+
+  Future<void> _persistDraft() {
+    final payload = _draftPayload();
+    final database = DatabaseScope.of(context);
+    final previous = _draftWrites.catchError((Object _) {});
+    final pending = previous.then((_) => database.saveDraft(payload));
+    _draftWrites = pending;
+    return pending;
+  }
+
+  void _touchDraft() {
+    if (_loading || _saving) return;
+    _draftDebounce?.cancel();
+    _draftDebounce = Timer(const Duration(milliseconds: 650), () {
+      if (!mounted || _saving) return;
+      unawaited(_persistDraft().catchError((Object e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('草稿保存失败：$e')));
+      }));
+    });
+  }
+
+  Future<void> _saveDraftNow() async {
+    _draftDebounce?.cancel();
+    try {
+      await _persistDraft();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('草稿已写入本机数据库')));
+    } catch (e) {
+      if (mounted) await _error(context, e);
+    }
+  }
+
+  void _restoreDraft(String raw, List<Customer> customers) {
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map<String, dynamic> || decoded['schema'] != 1) {
+      throw const FormatException('草稿格式版本不兼容');
+    }
+    final items = decoded['lines'];
+    if (items is! List || items.isEmpty) throw const FormatException('草稿缺少明细行');
+    final restored = items.map((item) {
+      if (item is! Map) throw const FormatException('草稿明细格式错误');
+      return _LineForm.fromDraftJson(Map<String, dynamic>.from(item));
+    }).toList();
+    for (final old in _lines) { old.dispose(); }
+    _lines..clear()..addAll(restored);
+    final savedCustomer = decoded['customerId'];
+    _customerId = savedCustomer is int &&
+        customers.any((c) => c.id == savedCustomer) ? savedCustomer : null;
+    _discount.text = decoded['discount'] is String ? decoded['discount'] as String : '0';
+    _received.text = decoded['received'] is String ? decoded['received'] as String : '0';
+    _note.text = decoded['note'] is String ? decoded['note'] as String : '';
+  }
+
+  bool _didLoad = false;
   @override
-  void initState() { super.initState(); _load(); }
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_didLoad) {
+      _didLoad = true;
+      _load();
+    }
+  }
 
   Future<void> _load() async {
     try {
-      final customers = await AppDatabase.instance.customers();
-      final products = await AppDatabase.instance.products();
+      final database = DatabaseScope.of(context);
+      final customers = await database.customers();
+      final products = await database.products();
+      final draft = await database.loadDraft();
       if (!mounted) return;
+      var draftError = false;
+      if (draft != null) {
+        try { _restoreDraft(draft, customers); }
+        catch (e) {
+          draftError = true;
+          debugPrint('Draft recovery failed; original retained in SQLite: $e');
+        }
+      }
       setState(() { _customers = customers; _products = products; _loading = false; });
+      if (draftError && mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('草稿无法解析，原始数据已保留在本机')));
     } catch (e) { if (mounted) { setState(() => _loading = false); await _error(context, e); } }
   }
 
   @override
   void dispose() {
+    _draftDebounce?.cancel();
     _discount.dispose(); _received.dispose(); _note.dispose();
-    for (final line in _lines) line.dispose();
+    for (final line in _lines) { line.dispose(); }
     super.dispose();
   }
 
@@ -270,6 +434,7 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
     if (_lines.length == 1) return;
     final removed = _lines.removeAt(index);
     setState(() {});
+    _touchDraft();
     // Keep the text controllers alive until the current frame is detached.
     WidgetsBinding.instance.addPostFrameCallback((_) => removed.dispose());
   }
@@ -278,16 +443,23 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
     if (!_formKey.currentState!.validate()) return;
     if (_customerId == null) { await _error(context, ArgumentError('请先选择客户')); return; }
     setState(() => _saving = true);
+    _draftDebounce?.cancel();
+    final database = DatabaseScope.of(context);
     try {
+      await _draftWrites;
       final customer = _customers.firstWhere((c) => c.id == _customerId);
-      final id = await AppDatabase.instance.createSale(
+      final id = await database.createSale(
         customer: customer, lines: _lines.map((e) => e.toLine()).toList(),
         discountCents: Fixed.parse(_discount.text, decimals: 2),
         initialReceivedCents: Fixed.parse(_received.text, decimals: 2),
         note: _note.text,
       );
-      final sale = (await AppDatabase.instance.sales()).firstWhere((s) => s.id == id);
+      final sale = await database.saleById(id);
       if (!mounted) return;
+      if (sale == null) {
+        Navigator.pop(context);
+        return;
+      }
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => SaleDetailPage(sale: sale)));
     } catch (e) { if (mounted) await _error(context, e); }
     finally { if (mounted) setState(() => _saving = false); }
@@ -304,7 +476,10 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
           initialValue: _customerId,
           decoration: const InputDecoration(labelText: '客户 *'),
           items: _customers.map((c) => DropdownMenuItem(value: c.id, child: Text(c.name))).toList(),
-          onChanged: (value) => setState(() => _customerId = value),
+          onChanged: (value) {
+            setState(() => _customerId = value);
+            _touchDraft();
+          },
           validator: (value) => value == null ? '请选择客户' : null,
         ),
         const SizedBox(height: 12),
@@ -312,20 +487,24 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
           style: Theme.of(context).textTheme.bodyMedium),
         const SizedBox(height: 12),
         for (var i = 0; i < _lines.length; i++) _lineCard(i),
-        OutlinedButton.icon(onPressed: () => setState(() => _lines.add(_LineForm())),
-          icon: const Icon(Icons.add), label: const Text('新增一行产品')),
+        OutlinedButton.icon(onPressed: () {
+          setState(() => _lines.add(_LineForm()));
+          _touchDraft();
+        }, icon: const Icon(Icons.add), label: const Text('新增一行产品')),
         const SizedBox(height: 16),
         Text('产品金额：${_subtotal == null ? '请输入有效数量、门幅和单价' : '¥${Fixed.format(_subtotal!, decimals: 2)}'}',
           style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 12),
         TextFormField(controller: _discount, keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: const InputDecoration(labelText: '优惠金额（元）'),
-          onChanged: (_) => setState(() {})),
+          onChanged: (_) { setState(() {}); _touchDraft(); }),
         const SizedBox(height: 12),
         TextFormField(controller: _received, keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(labelText: '开单已收款（元）')),
+          decoration: const InputDecoration(labelText: '开单已收款（元）'),
+          onChanged: (_) => _touchDraft()),
         const SizedBox(height: 12),
-        TextFormField(controller: _note, decoration: const InputDecoration(labelText: '订单备注'), maxLines: 2),
+        TextFormField(controller: _note, decoration: const InputDecoration(labelText: '订单备注'),
+          maxLines: 2, onChanged: (_) => _touchDraft()),
         const SizedBox(height: 14),
         if (_subtotal != null) Builder(builder: (context) {
           try {
@@ -334,11 +513,14 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
           } catch (_) { return const Text('请检查优惠金额'); }
         }),
         const SizedBox(height: 20),
+        OutlinedButton.icon(onPressed: _saving ? null : _saveDraftNow,
+          icon: const Icon(Icons.save_outlined), label: const Text('立即保存草稿')),
+        const SizedBox(height: 10),
         FilledButton.icon(onPressed: _saving ? null : _save,
           icon: const Icon(Icons.check_circle_outline),
-          label: Padding(padding: const EdgeInsets.all(12), child: Text(_saving ? '保存中…' : '确认出货并保存'))),
+          label: Padding(padding: const EdgeInsets.all(12), child: Text(_saving ? '保存中…' : '确认销售并保存'))),
         const Padding(padding: EdgeInsets.only(top: 12),
-          child: Text('保存即确认为销售单；当前版本尚未启用库存自动扣减。',
+          child: Text('输入停顿约 650ms 自动保存 SQLite 草稿；正式保存才生成订单。当前版本不扣库存。',
             style: TextStyle(color: Colors.grey))),
         const SizedBox(height: 30),
       ])),
@@ -362,13 +544,16 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
           onChanged: (id) {
             if (id == null) return;
             setState(() => input.useProduct(_products.firstWhere((p) => p.id == id)));
+            _touchDraft();
           },
         ),
         const SizedBox(height: 10),
         TextFormField(controller: input.code, decoration: const InputDecoration(labelText: '产品型号 *'),
-          validator: (v) => v == null || v.trim().isEmpty ? '必填' : null),
+          validator: (v) => v == null || v.trim().isEmpty ? '必填' : null,
+          onChanged: (_) => _touchDraft()),
         const SizedBox(height: 10),
-        TextField(controller: input.spec, decoration: const InputDecoration(labelText: '规格型号')),
+        TextField(controller: input.spec, decoration: const InputDecoration(labelText: '规格型号'),
+          onChanged: (_) => _touchDraft()),
         const SizedBox(height: 10),
         Row(children: [
           Expanded(child: _amountInput(input.length, '米数 *')),
@@ -378,7 +563,8 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
         const SizedBox(height: 10),
         _amountInput(input.price, '单价（元/㎡）*'),
         const SizedBox(height: 10),
-        TextField(controller: input.note, decoration: const InputDecoration(labelText: '本行备注')),
+        TextField(controller: input.note, decoration: const InputDecoration(labelText: '本行备注'),
+          onChanged: (_) => _touchDraft()),
         const SizedBox(height: 10),
         Builder(builder: (_) {
           try {
@@ -396,7 +582,7 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
     controller: controller,
     keyboardType: const TextInputType.numberWithOptions(decimal: true),
     decoration: InputDecoration(labelText: label),
-    onChanged: (_) => setState(() {}),
+    onChanged: (_) { setState(() {}); _touchDraft(); },
     validator: (value) => value == null || value.trim().isEmpty ? '必填' : null,
   );
 }
@@ -408,32 +594,32 @@ class SalesPage extends StatefulWidget {
 }
 
 class _SalesPageState extends State<SalesPage> {
-  late Future<List<Sale>> _items = AppDatabase.instance.sales();
-  void _refresh() => setState(() => _items = AppDatabase.instance.sales());
+  late Future<List<Sale>> _items;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _items = DatabaseScope.of(context).sales();
+  }
+  void _refresh() {
+    final pending = DatabaseScope.of(context).sales();
+    setState(() { _items = pending; });
+  }
 
   Future<void> _exportCsv(List<Sale> sales) async {
-    // UTF-8 with BOM for Excel / WPS Chinese compatibility.
-    String escape(String raw) => '"${raw.replaceAll('"', '""')}"';
-    final out = StringBuffer('\uFEFF单号,销售日期,客户,产品型号,规格,米数,门幅,总数量(㎡),单价(元/㎡),行金额(元),优惠(元),合同金额(元),已收(元),本单未收(元),备注\r\n');
-    for (final sale in sales) {
-      for (final item in sale.lines) {
-        out.writeln([
-          escape(sale.number), sale.date, escape(sale.customerName), escape(item.code),
-          escape(item.specification), Fixed.format(item.lengthMilli, decimals: 3, trim: true),
-          Fixed.format(item.widthMilli, decimals: 3, trim: true), item.areaText,
-          Fixed.format(item.unitPriceCents, decimals: 2), Fixed.format(item.totalCents, decimals: 2),
-          Fixed.format(sale.discountCents, decimals: 2), Fixed.format(sale.payableCents, decimals: 2),
-          Fixed.format(sale.receivedCents, decimals: 2), Fixed.format(sale.currentDueCents, decimals: 2),
-          escape(sale.note),
-        ].join(',').replaceAll('\n', '\r\n'));
-      }
-    }
+    final bundle = SalesCsvExporter.generate(sales);
     final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/凯堡软装销售记录.csv');
-    await file.writeAsString(out.toString());
+    final orders = File('${dir.path}/凯堡软装-销售单.csv');
+    final lines = File('${dir.path}/凯堡软装-销售明细.csv');
+    await Future.wait([
+      orders.writeAsString(bundle.orders, flush: true),
+      lines.writeAsString(bundle.lines, flush: true),
+    ]);
     await SharePlus.instance.share(ShareParams(
-      files: [XFile(file.path, mimeType: 'text/csv')],
-      subject: '凯堡软装销售记录',
+      files: [
+        XFile(orders.path, mimeType: 'text/csv'),
+        XFile(lines.path, mimeType: 'text/csv'),
+      ],
+      subject: '凯堡软装销售记录（销售单与明细分表）',
     ));
   }
 
@@ -456,7 +642,7 @@ class _SalesPageState extends State<SalesPage> {
         ListTile(title: Text('共 ${sales.length} 单'),
           trailing: TextButton.icon(onPressed: () async {
             try { await _exportCsv(sales); } catch (e) { if (context.mounted) await _error(context, e); }
-          }, icon: const Icon(Icons.table_view), label: const Text('导出 CSV'))),
+          }, icon: const Icon(Icons.table_view), label: const Text('导出订单与明细 CSV'))),
         Expanded(child: ListView.builder(itemCount: sales.length, itemBuilder: (ctx, i) {
           final sale = sales[i];
           return ListTile(
@@ -489,39 +675,50 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
   bool _busy = false;
 
   Future<void> _receive() async {
-    final amount = TextEditingController(text: Fixed.format(_sale.currentDueCents, decimals: 2));
-    final method = ValueNotifier<String>('微信');
-    try {
-      final confirmed = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+    final database = DatabaseScope.of(context);
+    var amount = Fixed.format(_sale.currentDueCents, decimals: 2);
+    var method = '微信';
+    final confirmed = await showDialog<bool>(context: context, builder: (ctx) =>
+      AlertDialog(
         title: const Text('登记收款'),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
           Text('本单剩余未收：¥${Fixed.format(_sale.currentDueCents, decimals: 2)}'),
           const SizedBox(height: 14),
-          TextField(controller: amount, decoration: const InputDecoration(labelText: '本次收款金额（元）'),
+          TextFormField(
+            initialValue: amount,
+            onChanged: (v) => amount = v,
+            decoration: const InputDecoration(labelText: '本次收款金额（元）'),
             keyboardType: const TextInputType.numberWithOptions(decimal: true)),
           const SizedBox(height: 12),
-          ValueListenableBuilder<String>(valueListenable: method, builder: (ctx, selected, _) =>
-            DropdownButtonFormField<String>(initialValue: selected,
-              items: const ['微信', '支付宝', '现金', '银行转账', '其他']
-                .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-              onChanged: (v) { if (v != null) method.value = v; },
-              decoration: const InputDecoration(labelText: '收款方式'))),
+          DropdownButtonFormField<String>(
+            initialValue: '微信',
+            items: const ['微信', '支付宝', '现金', '银行转账', '其他']
+              .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+            onChanged: (v) { if (v != null) method = v; },
+            decoration: const InputDecoration(labelText: '收款方式'),
+          ),
         ]),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确认收款')),
         ],
-      ));
-      if (confirmed != true) return;
-      setState(() => _busy = true);
-      await AppDatabase.instance.addPayment(_sale, Fixed.parse(amount.text, decimals: 2), method: method.value);
-      final sales = await AppDatabase.instance.sales();
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await database.addPayment(_sale, Fixed.parse(amount, decimals: 2), method: method);
+      final updated = await database.saleById(_sale.id);
+      if (updated == null) throw StateError('收款已入账，但刷新单据失败，请检查历史记录');
       if (mounted) {
-        setState(() => _sale = sales.firstWhere((e) => e.id == _sale.id));
+        setState(() => _sale = updated);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('收款已保存')));
       }
-    } catch (e) { if (mounted) await _error(context, e); }
-    finally { amount.dispose(); method.dispose(); if (mounted) setState(() => _busy = false); }
+    } catch (e) {
+      if (mounted) await _error(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _print(bool share) async {
@@ -566,7 +763,12 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
         _total('已收款', sale.receivedCents),
         _total('本单未收', sale.currentDueCents, emphasize: true),
         _total('上期欠款（开单时）', sale.priorDueCents),
-        _total('开单时累计欠款（含本单剩余）', sale.cumulativeDueCents),
+        FutureBuilder<int>(
+          future: DatabaseScope.of(context).customerOutstanding(sale.customerId),
+          builder: (context, snapshot) => snapshot.hasData
+            ? _total('客户当前总欠款', snapshot.data!, emphasize: true)
+            : Text(snapshot.hasError ? '当前欠款查询失败' : '当前欠款查询中…'),
+        ),
         const SizedBox(height: 10),
         if (sale.note.isNotEmpty) Text('备注：${sale.note}'),
         const SizedBox(height: 18),

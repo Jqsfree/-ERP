@@ -28,7 +28,7 @@ void main() {
     await tester.enterText(find.byType(TextField).at(1), '13800000000');
     await tester.pumpAndSettle();
 
-    expect(tester.widget<TextFormField>(find.byType(TextFormField).first).controller!.text, '测试客户');
-    expect(tester.widget<TextField>(find.byType(TextField).at(1)).controller!.text, '13800000000');
+    expect(find.text('测试客户'), findsOneWidget);
+    expect(find.text('13800000000'), findsOneWidget);
   });
 }
