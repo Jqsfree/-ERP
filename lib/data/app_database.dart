@@ -90,6 +90,7 @@ class AppDatabase implements SalesStore, BackupStore {
 
   /// Operational drafts are persisted in SQLite, NOT a second cache of balances.
   /// A single-device P0 editor has only one active draft.
+  @override
   Future<void> saveDraft(String jsonPayload) async {
     if (jsonPayload.trim().isEmpty) throw ArgumentError('草稿不能为空');
     final database = await db;
@@ -98,12 +99,14 @@ class AppDatabase implements SalesStore, BackupStore {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  @override
   Future<String?> loadDraft() async {
     final rows = await (await db).query('sale_drafts', columns: ['payload'],
       where: 'id = ?', whereArgs: [1], limit: 1);
     return rows.isEmpty ? null : rows.first['payload'] as String;
   }
 
+  @override
   Future<void> deleteDraft() async {
     await (await db).delete('sale_drafts', where: 'id = ?', whereArgs: [1]);
   }
@@ -117,11 +120,13 @@ class AppDatabase implements SalesStore, BackupStore {
       integrity.first.values.single == 'ok' && foreignKeys.isEmpty;
   }
 
+  @override
   Future<List<Customer>> customers() async {
     final rows = await (await db).query('customers', orderBy: 'name COLLATE NOCASE');
     return rows.map(Customer.fromMap).toList();
   }
 
+  @override
   Future<void> addCustomer(Customer item) async {
     if (item.name.trim().isEmpty) throw ArgumentError('客户名称不能为空');
     await (await db).insert('customers', {
@@ -130,11 +135,13 @@ class AppDatabase implements SalesStore, BackupStore {
     });
   }
 
+  @override
   Future<List<Product>> products() async {
     final rows = await (await db).query('products', orderBy: 'code COLLATE NOCASE');
     return rows.map(Product.fromMap).toList();
   }
 
+  @override
   Future<void> addProduct(Product item) async {
     if (item.code.trim().isEmpty) throw ArgumentError('产品型号不能为空');
     await (await db).insert('products', {
@@ -143,6 +150,7 @@ class AppDatabase implements SalesStore, BackupStore {
     });
   }
 
+  @override
   Future<int> customerOutstanding(int customerId, {Transaction? tx}) async {
     final database = tx ?? await db;
     final customers = await database.query('customers', where: 'id=?', whereArgs: [customerId]);
@@ -158,6 +166,7 @@ class AppDatabase implements SalesStore, BackupStore {
 
   /// Creates a confirmed invoice in one SQLite transaction.
   /// Serial is allocated inside the transaction to prevent duplicate numbers.
+  @override
   Future<int> createSale({required Customer customer, required List<SaleLine> lines,
     required int discountCents, required int initialReceivedCents, String note = ''}) async {
     if (customer.id == null) throw ArgumentError('请选择已保存的客户');
@@ -209,8 +218,10 @@ class AppDatabase implements SalesStore, BackupStore {
     });
   }
 
+  @override
   Future<List<Sale>> sales() => _loadSales();
 
+  @override
   Future<Sale?> saleById(int id) async {
     final items = await _loadSales(saleId: id);
     return items.isEmpty ? null : items.single;
@@ -254,6 +265,7 @@ class AppDatabase implements SalesStore, BackupStore {
     }).toList();
   }
 
+  @override
   Future<void> addPayment(Sale sale, int amountCents, {String method = '其他'}) async {
     if (amountCents <= 0) throw ArgumentError('收款金额必须大于零');
     await (await db).transaction((tx) async {
