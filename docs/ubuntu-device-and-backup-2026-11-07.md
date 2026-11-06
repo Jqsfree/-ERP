@@ -33,7 +33,7 @@ fvm flutter build apk --debug
 - 需要 Java **17**、Android API **36**、Build Tools **36.0.0**、ADB。
 - `bootstrap-ubuntu.sh` 不执行 `apt`、不重置 Git、不改变其他工程 SDK。
 - `android/` 仍是临时生成的 Flutter runner。**它尚未纳入 Git**，因此 Gradle 配置的完整版本化是尚未解决的后续工作。不要误称 Android 原生工程已锁定。
-- `pubspec.lock` 暂未由仓库锁定；需要在验证版本与依赖后提交生成的 lockfile。
+- `pubspec.lock` 已由 GitHub CI 解析生成并提交；CI 使用 `flutter pub get --enforce-lockfile` 验证依赖版本，不允许静默升级。
 
 ## 2. 真机数据库测试（不会改动正式 kaibao_sales.db）
 
