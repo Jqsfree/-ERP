@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
+import 'dart:convert';
+import 'dart:async';
 
 import '../data/app_database.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
 import '../services/invoice_pdf.dart';
+import '../services/sales_csv.dart';
 
 const _brand = '凯堡软装';
 
@@ -286,8 +289,12 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
         initialReceivedCents: Fixed.parse(_received.text, decimals: 2),
         note: _note.text,
       );
-      final sale = (await AppDatabase.instance.sales()).firstWhere((s) => s.id == id);
+      final sale = await AppDatabase.instance.saleById(id);
       if (!mounted) return;
+      if (sale == null) {
+        Navigator.pop(context);
+        return;
+      }
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => SaleDetailPage(sale: sale)));
     } catch (e) { if (mounted) await _error(context, e); }
     finally { if (mounted) setState(() => _saving = false); }
@@ -336,7 +343,7 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
         const SizedBox(height: 20),
         FilledButton.icon(onPressed: _saving ? null : _save,
           icon: const Icon(Icons.check_circle_outline),
-          label: Padding(padding: const EdgeInsets.all(12), child: Text(_saving ? '保存中…' : '确认出货并保存'))),
+          label: Padding(padding: const EdgeInsets.all(12), child: Text(_saving ? '保存中…' : '确认销售并保存'))),
         const Padding(padding: EdgeInsets.only(top: 12),
           child: Text('保存即确认为销售单；当前版本尚未启用库存自动扣减。',
             style: TextStyle(color: Colors.grey))),
@@ -412,28 +419,20 @@ class _SalesPageState extends State<SalesPage> {
   void _refresh() => setState(() => _items = AppDatabase.instance.sales());
 
   Future<void> _exportCsv(List<Sale> sales) async {
-    // UTF-8 with BOM for Excel / WPS Chinese compatibility.
-    String escape(String raw) => '"${raw.replaceAll('"', '""')}"';
-    final out = StringBuffer('\uFEFF单号,销售日期,客户,产品型号,规格,米数,门幅,总数量(㎡),单价(元/㎡),行金额(元),优惠(元),合同金额(元),已收(元),本单未收(元),备注\r\n');
-    for (final sale in sales) {
-      for (final item in sale.lines) {
-        out.writeln([
-          escape(sale.number), sale.date, escape(sale.customerName), escape(item.code),
-          escape(item.specification), Fixed.format(item.lengthMilli, decimals: 3, trim: true),
-          Fixed.format(item.widthMilli, decimals: 3, trim: true), item.areaText,
-          Fixed.format(item.unitPriceCents, decimals: 2), Fixed.format(item.totalCents, decimals: 2),
-          Fixed.format(sale.discountCents, decimals: 2), Fixed.format(sale.payableCents, decimals: 2),
-          Fixed.format(sale.receivedCents, decimals: 2), Fixed.format(sale.currentDueCents, decimals: 2),
-          escape(sale.note),
-        ].join(',').replaceAll('\n', '\r\n'));
-      }
-    }
+    final bundle = SalesCsvExporter.generate(sales);
     final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/凯堡软装销售记录.csv');
-    await file.writeAsString(out.toString());
+    final orders = File('${dir.path}/凯堡软装-销售单.csv');
+    final lines = File('${dir.path}/凯堡软装-销售明细.csv');
+    await Future.wait([
+      orders.writeAsString(bundle.orders, flush: true),
+      lines.writeAsString(bundle.lines, flush: true),
+    ]);
     await SharePlus.instance.share(ShareParams(
-      files: [XFile(file.path, mimeType: 'text/csv')],
-      subject: '凯堡软装销售记录',
+      files: [
+        XFile(orders.path, mimeType: 'text/csv'),
+        XFile(lines.path, mimeType: 'text/csv'),
+      ],
+      subject: '凯堡软装销售记录（销售单与明细分表）',
     ));
   }
 
@@ -456,7 +455,7 @@ class _SalesPageState extends State<SalesPage> {
         ListTile(title: Text('共 ${sales.length} 单'),
           trailing: TextButton.icon(onPressed: () async {
             try { await _exportCsv(sales); } catch (e) { if (context.mounted) await _error(context, e); }
-          }, icon: const Icon(Icons.table_view), label: const Text('导出 CSV'))),
+          }, icon: const Icon(Icons.table_view), label: const Text('导出订单与明细 CSV'))),
         Expanded(child: ListView.builder(itemCount: sales.length, itemBuilder: (ctx, i) {
           final sale = sales[i];
           return ListTile(
@@ -515,9 +514,10 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
       if (confirmed != true) return;
       setState(() => _busy = true);
       await AppDatabase.instance.addPayment(_sale, Fixed.parse(amount.text, decimals: 2), method: method.value);
-      final sales = await AppDatabase.instance.sales();
+      final updated = await AppDatabase.instance.saleById(_sale.id);
+      if (updated == null) throw StateError('收款已入账，但刷新单据失败，请检查历史记录');
       if (mounted) {
-        setState(() => _sale = sales.firstWhere((e) => e.id == _sale.id));
+        setState(() => _sale = updated);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('收款已保存')));
       }
     } catch (e) { if (mounted) await _error(context, e); }
@@ -566,7 +566,12 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
         _total('已收款', sale.receivedCents),
         _total('本单未收', sale.currentDueCents, emphasize: true),
         _total('上期欠款（开单时）', sale.priorDueCents),
-        _total('开单时累计欠款（含本单剩余）', sale.cumulativeDueCents),
+        FutureBuilder<int>(
+          future: AppDatabase.instance.customerOutstanding(sale.customerId),
+          builder: (context, snapshot) => snapshot.hasData
+            ? _total('客户当前总欠款', snapshot.data!, emphasize: true)
+            : Text(snapshot.hasError ? '当前欠款查询失败' : '当前欠款查询中…'),
+        ),
         const SizedBox(height: 10),
         if (sale.note.isNotEmpty) Text('备注：${sale.note}'),
         const SizedBox(height: 18),
