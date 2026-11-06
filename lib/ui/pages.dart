@@ -224,6 +224,24 @@ class _LineForm {
     spec.text = product.specification;
     price.text = Fixed.format(product.unitPriceCents, decimals: 2);
   }
+  Map<String, Object?> toDraftJson() => {
+    'productId': productId, 'code': code.text, 'spec': spec.text,
+    'length': length.text, 'width': width.text, 'price': price.text,
+    'note': note.text,
+  };
+  factory _LineForm.fromDraftJson(Map<String, dynamic> json) {
+    String val(String key, [String fallback = '']) =>
+        json[key] is String ? json[key] as String : fallback;
+    final form = _LineForm();
+    form.productId = json['productId'] is int ? json['productId'] as int : null;
+    form.code.text = val('code');
+    form.spec.text = val('spec');
+    form.length.text = val('length');
+    form.width.text = val('width', '2.8');
+    form.price.text = val('price');
+    form.note.text = val('note');
+    return form;
+  }
   SaleLine toLine() => SaleLine(
     productId: productId, code: code.text.trim(), specification: spec.text.trim(),
     lengthMilli: Fixed.parse(length.text, decimals: 3),
@@ -254,6 +272,67 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
   int? _customerId;
   bool _saving = false;
   bool _loading = true;
+  Timer? _draftDebounce;
+  Future<void> _draftWrites = Future<void>.value();
+
+  String _draftPayload() => jsonEncode({
+    'schema': 1, 'customerId': _customerId, 'discount': _discount.text,
+    'received': _received.text, 'note': _note.text,
+    'lines': _lines.map((line) => line.toDraftJson()).toList(),
+  });
+
+  Future<void> _persistDraft() {
+    final payload = _draftPayload();
+    final database = DatabaseScope.of(context);
+    final previous = _draftWrites.catchError((Object _) {});
+    final pending = previous.then((_) => database.saveDraft(payload));
+    _draftWrites = pending;
+    return pending;
+  }
+
+  void _touchDraft() {
+    if (_loading || _saving) return;
+    _draftDebounce?.cancel();
+    _draftDebounce = Timer(const Duration(milliseconds: 650), () {
+      if (!mounted || _saving) return;
+      unawaited(_persistDraft().catchError((Object e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('草稿保存失败：$e')));
+      }));
+    });
+  }
+
+  Future<void> _saveDraftNow() async {
+    _draftDebounce?.cancel();
+    try {
+      await _persistDraft();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('草稿已写入本机数据库')));
+    } catch (e) {
+      if (mounted) await _error(context, e);
+    }
+  }
+
+  void _restoreDraft(String raw, List<Customer> customers) {
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map<String, dynamic> || decoded['schema'] != 1) {
+      throw const FormatException('草稿格式版本不兼容');
+    }
+    final items = decoded['lines'];
+    if (items is! List || items.isEmpty) throw const FormatException('草稿缺少明细行');
+    final restored = items.map((item) {
+      if (item is! Map) throw const FormatException('草稿明细格式错误');
+      return _LineForm.fromDraftJson(Map<String, dynamic>.from(item));
+    }).toList();
+    for (final old in _lines) { old.dispose(); }
+    _lines..clear()..addAll(restored);
+    final savedCustomer = decoded['customerId'];
+    _customerId = savedCustomer is int &&
+        customers.any((c) => c.id == savedCustomer) ? savedCustomer : null;
+    _discount.text = decoded['discount'] is String ? decoded['discount'] as String : '0';
+    _received.text = decoded['received'] is String ? decoded['received'] as String : '0';
+    _note.text = decoded['note'] is String ? decoded['note'] as String : '';
+  }
 
   bool _didLoad = false;
   @override
@@ -267,15 +346,28 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
 
   Future<void> _load() async {
     try {
-      final customers = await DatabaseScope.of(context).customers();
-      final products = await DatabaseScope.of(context).products();
+      final database = DatabaseScope.of(context);
+      final customers = await database.customers();
+      final products = await database.products();
+      final draft = await database.loadDraft();
       if (!mounted) return;
+      var draftError = false;
+      if (draft != null) {
+        try { _restoreDraft(draft, customers); }
+        catch (e) {
+          draftError = true;
+          debugPrint('Draft recovery failed; original retained in SQLite: $e');
+        }
+      }
       setState(() { _customers = customers; _products = products; _loading = false; });
+      if (draftError && mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('草稿无法解析，原始数据已保留在本机')));
     } catch (e) { if (mounted) { setState(() => _loading = false); await _error(context, e); } }
   }
 
   @override
   void dispose() {
+    _draftDebounce?.cancel();
     _discount.dispose(); _received.dispose(); _note.dispose();
     for (final line in _lines) line.dispose();
     super.dispose();
@@ -291,6 +383,7 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
     if (_lines.length == 1) return;
     final removed = _lines.removeAt(index);
     setState(() {});
+    _touchDraft();
     // Keep the text controllers alive until the current frame is detached.
     WidgetsBinding.instance.addPostFrameCallback((_) => removed.dispose());
   }
@@ -299,7 +392,9 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
     if (!_formKey.currentState!.validate()) return;
     if (_customerId == null) { await _error(context, ArgumentError('请先选择客户')); return; }
     setState(() => _saving = true);
+    _draftDebounce?.cancel();
     try {
+      await _draftWrites;
       final customer = _customers.firstWhere((c) => c.id == _customerId);
       final id = await DatabaseScope.of(context).createSale(
         customer: customer, lines: _lines.map((e) => e.toLine()).toList(),
@@ -329,7 +424,10 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
           initialValue: _customerId,
           decoration: const InputDecoration(labelText: '客户 *'),
           items: _customers.map((c) => DropdownMenuItem(value: c.id, child: Text(c.name))).toList(),
-          onChanged: (value) => setState(() => _customerId = value),
+          onChanged: (value) {
+            setState(() => _customerId = value);
+            _touchDraft();
+          },
           validator: (value) => value == null ? '请选择客户' : null,
         ),
         const SizedBox(height: 12),
@@ -337,20 +435,24 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
           style: Theme.of(context).textTheme.bodyMedium),
         const SizedBox(height: 12),
         for (var i = 0; i < _lines.length; i++) _lineCard(i),
-        OutlinedButton.icon(onPressed: () => setState(() => _lines.add(_LineForm())),
-          icon: const Icon(Icons.add), label: const Text('新增一行产品')),
+        OutlinedButton.icon(onPressed: () {
+          setState(() => _lines.add(_LineForm()));
+          _touchDraft();
+        }, icon: const Icon(Icons.add), label: const Text('新增一行产品')),
         const SizedBox(height: 16),
         Text('产品金额：${_subtotal == null ? '请输入有效数量、门幅和单价' : '¥${Fixed.format(_subtotal!, decimals: 2)}'}',
           style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 12),
         TextFormField(controller: _discount, keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: const InputDecoration(labelText: '优惠金额（元）'),
-          onChanged: (_) => setState(() {})),
+          onChanged: (_) { setState(() {}); _touchDraft(); }),
         const SizedBox(height: 12),
         TextFormField(controller: _received, keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(labelText: '开单已收款（元）')),
+          decoration: const InputDecoration(labelText: '开单已收款（元）'),
+          onChanged: (_) => _touchDraft()),
         const SizedBox(height: 12),
-        TextFormField(controller: _note, decoration: const InputDecoration(labelText: '订单备注'), maxLines: 2),
+        TextFormField(controller: _note, decoration: const InputDecoration(labelText: '订单备注'),
+          maxLines: 2, onChanged: (_) => _touchDraft()),
         const SizedBox(height: 14),
         if (_subtotal != null) Builder(builder: (context) {
           try {
@@ -359,11 +461,14 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
           } catch (_) { return const Text('请检查优惠金额'); }
         }),
         const SizedBox(height: 20),
+        OutlinedButton.icon(onPressed: _saving ? null : _saveDraftNow,
+          icon: const Icon(Icons.save_outlined), label: const Text('立即保存草稿')),
+        const SizedBox(height: 10),
         FilledButton.icon(onPressed: _saving ? null : _save,
           icon: const Icon(Icons.check_circle_outline),
           label: Padding(padding: const EdgeInsets.all(12), child: Text(_saving ? '保存中…' : '确认销售并保存'))),
         const Padding(padding: EdgeInsets.only(top: 12),
-          child: Text('保存即确认为销售单；当前版本尚未启用库存自动扣减。',
+          child: Text('输入停顿约 650ms 自动保存 SQLite 草稿；正式保存才生成订单。当前版本不扣库存。',
             style: TextStyle(color: Colors.grey))),
         const SizedBox(height: 30),
       ])),
@@ -387,13 +492,16 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
           onChanged: (id) {
             if (id == null) return;
             setState(() => input.useProduct(_products.firstWhere((p) => p.id == id)));
+            _touchDraft();
           },
         ),
         const SizedBox(height: 10),
         TextFormField(controller: input.code, decoration: const InputDecoration(labelText: '产品型号 *'),
-          validator: (v) => v == null || v.trim().isEmpty ? '必填' : null),
+          validator: (v) => v == null || v.trim().isEmpty ? '必填' : null,
+          onChanged: (_) => _touchDraft()),
         const SizedBox(height: 10),
-        TextField(controller: input.spec, decoration: const InputDecoration(labelText: '规格型号')),
+        TextField(controller: input.spec, decoration: const InputDecoration(labelText: '规格型号'),
+          onChanged: (_) => _touchDraft()),
         const SizedBox(height: 10),
         Row(children: [
           Expanded(child: _amountInput(input.length, '米数 *')),
@@ -403,7 +511,8 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
         const SizedBox(height: 10),
         _amountInput(input.price, '单价（元/㎡）*'),
         const SizedBox(height: 10),
-        TextField(controller: input.note, decoration: const InputDecoration(labelText: '本行备注')),
+        TextField(controller: input.note, decoration: const InputDecoration(labelText: '本行备注'),
+          onChanged: (_) => _touchDraft()),
         const SizedBox(height: 10),
         Builder(builder: (_) {
           try {
@@ -421,7 +530,7 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
     controller: controller,
     keyboardType: const TextInputType.numberWithOptions(decimal: true),
     decoration: InputDecoration(labelText: label),
-    onChanged: (_) => setState(() {}),
+    onChanged: (_) { setState(() {}); _touchDraft(); },
     validator: (value) => value == null || value.trim().isEmpty ? '必填' : null,
   );
 }
