@@ -15,9 +15,9 @@ abstract interface class SalesStore {
     required List<SaleLine> lines,
     required int discountCents,
     required int initialReceivedCents,
-    String note,
+    String note = '',
   });
-  Future<void> addPayment(Sale sale, int amountCents, {String method});
+  Future<void> addPayment(Sale sale, int amountCents, {String method = '其他'});
   Future<void> saveDraft(String jsonPayload);
   Future<String?> loadDraft();
   Future<void> deleteDraft();
