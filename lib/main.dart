@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'data/app_database.dart';
+import 'application/sales_store.dart';
 import 'ui/pages.dart';
 import 'ui/database_scope.dart';
 
@@ -11,7 +12,7 @@ Future<void> main() async {
 
 class KaibaoApp extends StatelessWidget {
   const KaibaoApp({super.key, this.database});
-  final AppDatabase? database;
+  final SalesStore? database;
   @override
   Widget build(BuildContext context) => DatabaseScope(
     database: database ?? AppDatabase.instance,
