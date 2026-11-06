@@ -71,13 +71,13 @@ class BackupSnapshot {
         decoded['createdAt'] is! String) {
       throw const FormatException('备份格式或数据库版本不兼容');
     }
-    final input = decoded['tables'];
-    if (input is! Map<String, dynamic>) {
+    final rawTables = decoded['tables'];
+    if (rawTables is! Map<String, dynamic>) {
       throw const FormatException('备份数据库表结构不完整');
     }
     // Older v2 archives have six tables. Preserve their original accounting
     // rows and initialize new procurement tables as genuinely empty.
-    final tables = Map<String, dynamic>.from(input);
+    final tables = Map<String, dynamic>.from(rawTables);
     if (decoded['schemaVersion'] == 2) {
       if (tables.containsKey('suppliers') ||
           tables.containsKey('purchase_orders') ||
