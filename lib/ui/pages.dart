@@ -210,6 +210,7 @@ class _ProductsPageState extends State<ProductsPage> {
 }
 
 class _LineForm {
+  _LineForm();
   final code = TextEditingController();
   final spec = TextEditingController();
   final length = TextEditingController();
