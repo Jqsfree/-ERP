@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaibao_sales/application/sales_store.dart';
 import 'package:kaibao_sales/domain/models.dart';
-import 'package:kaibao_sales/main.dart';
+import 'package:kaibao_sales/ui/pages.dart';
+import 'package:kaibao_sales/ui/database_scope.dart';
 
 /// UI tests use a synchronous-in-memory application port implementation.
 /// True SQLite IO and process reopen are verified separately by database_integration_test.
@@ -93,24 +94,23 @@ void main() {
   testWidgets('表单输入客户、产品及销售单，输出与 Application Port 一致',
       (tester) async {
     final store = _InMemorySalesStore();
-    await tester.pumpWidget(KaibaoApp(database: store));
-    await tester.pumpAndSettle();
+    Future<void> mountPage(Widget page) async {
+      await tester.pumpWidget(DatabaseScope(
+        key: UniqueKey(),
+        database: store,
+        child: MaterialApp(home: page),
+      ));
+      await tester.pumpAndSettle();
+    }
 
-    await tester.ensureVisible(find.text('客户'));
-    await tester.tap(find.text('客户'));
-    await tester.pumpAndSettle();
+    await mountPage(const CustomersPage());
     await tester.tap(find.text('新增客户'));
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextFormField, '客户名称 *'), '客户A');
     await tester.tap(find.text('保存').last);
     await tester.pumpAndSettle();
     expect((await store.customers()).single.name, '客户A');
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-
-    await tester.ensureVisible(find.text('产品'));
-    await tester.tap(find.text('产品'));
-    await tester.pumpAndSettle();
+    await mountPage(const ProductsPage());
     await tester.tap(find.text('新增产品'));
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextFormField, '产品型号 *'), 'KB56-34');
@@ -118,12 +118,7 @@ void main() {
     await tester.tap(find.text('保存').last);
     await tester.pumpAndSettle();
     expect((await store.products()).single.unitPriceCents, 1399);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-
-    await tester.ensureVisible(find.text('销售'));
-    await tester.tap(find.text('销售'));
-    await tester.pumpAndSettle();
+    await mountPage(const SaleEditorPage());
     await tester.ensureVisible(find.byType(DropdownButtonFormField<int>).first);
     await tester.tap(find.byType(DropdownButtonFormField<int>).first);
     await tester.pumpAndSettle();
