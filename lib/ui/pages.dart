@@ -7,6 +7,8 @@ import 'dart:async';
 
 import 'database_scope.dart';
 import 'backup_page.dart';
+import 'procurement_pages.dart';
+import '../application/procurement_store.dart';
 import '../application/backup_store.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
@@ -31,11 +33,17 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = DatabaseScope.of(context);
     final BackupStore? backupStore = store is BackupStore ? store as BackupStore : null;
+    final ProcurementStore? procurement = store is ProcurementStore ? store as ProcurementStore : null;
     final tiles = <({String name, IconData icon, VoidCallback? action})>[
       (name: '销售', icon: Icons.receipt_long, action: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SaleEditorPage()))),
-      (name: '采购', icon: Icons.shopping_cart, action: null),
+      (name: '采购', icon: Icons.shopping_cart,
+        action: procurement == null ? null : () => Navigator.push(context,
+          MaterialPageRoute(builder: (_) => PurchaseOrdersPage(
+            store: procurement, catalog: store)))),
       (name: '客户', icon: Icons.people_alt, action: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CustomersPage()))),
-      (name: '供应商', icon: Icons.local_shipping, action: null),
+      (name: '供应商', icon: Icons.local_shipping,
+        action: procurement == null ? null : () => Navigator.push(context,
+          MaterialPageRoute(builder: (_) => SuppliersPage(store: procurement)))),
       (name: '产品', icon: Icons.inventory_2, action: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductsPage()))),
       (name: '库存', icon: Icons.warehouse, action: null),
       (name: '退货', icon: Icons.swap_horiz, action: null),
