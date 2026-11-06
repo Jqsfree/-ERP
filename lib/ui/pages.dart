@@ -87,42 +87,69 @@ class _CustomersPageState extends State<CustomersPage> {
     super.didChangeDependencies();
     _items = DatabaseScope.of(context).customers();
   }
-  void _refresh() => setState(() => _items = DatabaseScope.of(context).customers());
+  void _refresh() {
+    final pending = DatabaseScope.of(context).customers();
+    setState(() { _items = pending; });
+  }
 
   Future<void> _create() async {
-    final name = TextEditingController(), phone = TextEditingController(),
-      address = TextEditingController(), balance = TextEditingController(text: '0');
+    final database = DatabaseScope.of(context);
     final formKey = GlobalKey<FormState>();
-    try {
-      final saved = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+    var name = '';
+    var phone = '';
+    var address = '';
+    var balance = '0';
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
         title: const Text('新增客户'),
-        content: SizedBox(width: 380, child: Form(key: formKey, child: SingleChildScrollView(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextFormField(controller: name, decoration: const InputDecoration(labelText: '客户名称 *'),
-              validator: (v) => v == null || v.trim().isEmpty ? '必填' : null),
-            const SizedBox(height: 12),
-            TextField(controller: phone, decoration: const InputDecoration(labelText: '联系电话')),
-            const SizedBox(height: 12),
-            TextField(controller: address, decoration: const InputDecoration(labelText: '收货地址')),
-            const SizedBox(height: 12),
-            TextField(controller: balance, decoration: const InputDecoration(labelText: '初始欠款（元）'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true)),
-          ])))),
+        content: SizedBox(width: 380, child: Form(
+          key: formKey,
+          child: SingleChildScrollView(child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                decoration: const InputDecoration(labelText: '客户名称 *'),
+                onChanged: (v) => name = v,
+                validator: (v) => v == null || v.trim().isEmpty ? '必填' : null),
+              const SizedBox(height: 12),
+              TextFormField(
+                decoration: const InputDecoration(labelText: '联系电话'),
+                onChanged: (v) => phone = v),
+              const SizedBox(height: 12),
+              TextFormField(
+                decoration: const InputDecoration(labelText: '收货地址'),
+                onChanged: (v) => address = v),
+              const SizedBox(height: 12),
+              TextFormField(
+                initialValue: '0',
+                decoration: const InputDecoration(labelText: '初始欠款（元）'),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (v) => balance = v),
+            ],
+          )),
+        )),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          FilledButton(onPressed: () async {
-            if (!formKey.currentState!.validate()) return;
-            try {
-              await DatabaseScope.of(context).addCustomer(Customer(
-                name: name.text, phone: phone.text, address: address.text,
-                openingBalanceCents: Fixed.parse(balance.text, decimals: 2)));
-              if (ctx.mounted) Navigator.pop(ctx, true);
-            } catch (e) { if (ctx.mounted) await _error(ctx, e); }
-          }, child: const Text('保存')),
+          FilledButton(
+            onPressed: () async {
+              if (!formKey.currentState!.validate()) return;
+              try {
+                await database.addCustomer(Customer(
+                  name: name, phone: phone, address: address,
+                  openingBalanceCents: Fixed.parse(balance, decimals: 2),
+                ));
+                if (ctx.mounted) Navigator.pop(ctx, true);
+              } catch (e) {
+                if (ctx.mounted) await _error(ctx, e);
+              }
+            },
+            child: const Text('保存'),
+          ),
         ],
-      ));
-      if (saved == true) _refresh();
-    } finally { name.dispose(); phone.dispose(); address.dispose(); balance.dispose(); }
+      ),
+    );
+    if (saved == true && mounted) _refresh();
   }
 
   @override
@@ -156,40 +183,64 @@ class _ProductsPageState extends State<ProductsPage> {
     super.didChangeDependencies();
     _items = DatabaseScope.of(context).products();
   }
-  void _refresh() => setState(() => _items = DatabaseScope.of(context).products());
+  void _refresh() {
+    final pending = DatabaseScope.of(context).products();
+    setState(() { _items = pending; });
+  }
 
   Future<void> _create() async {
-    final code = TextEditingController(), spec = TextEditingController(), price = TextEditingController();
+    final database = DatabaseScope.of(context);
     final formKey = GlobalKey<FormState>();
-    try {
-      final saved = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+    var code = '';
+    var spec = '';
+    var price = '';
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
         title: const Text('新增产品'),
-        content: SizedBox(width: 380, child: Form(key: formKey, child: Column(mainAxisSize: MainAxisSize.min,
-          children: [
-            TextFormField(controller: code, decoration: const InputDecoration(labelText: '产品型号 *'),
-              validator: (v) => v == null || v.trim().isEmpty ? '必填' : null),
-            const SizedBox(height: 12),
-            TextField(controller: spec, decoration: const InputDecoration(labelText: '规格型号（可空）')),
-            const SizedBox(height: 12),
-            TextFormField(controller: price,
-              decoration: const InputDecoration(labelText: '默认单价（元/平方米）*'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) => v == null || v.isEmpty ? '必填' : null),
-          ]))),
+        content: SizedBox(width: 380, child: Form(
+          key: formKey,
+          child: SingleChildScrollView(child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                decoration: const InputDecoration(labelText: '产品型号 *'),
+                onChanged: (v) => code = v,
+                validator: (v) => v == null || v.trim().isEmpty ? '必填' : null),
+              const SizedBox(height: 12),
+              TextFormField(
+                decoration: const InputDecoration(labelText: '规格型号（可空）'),
+                onChanged: (v) => spec = v),
+              const SizedBox(height: 12),
+              TextFormField(
+                decoration: const InputDecoration(labelText: '默认单价（元/平方米）*'),
+                onChanged: (v) => price = v,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                validator: (v) => v == null || v.isEmpty ? '必填' : null),
+            ],
+          )),
+        )),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          FilledButton(onPressed: () async {
-            if (!formKey.currentState!.validate()) return;
-            try {
-              await DatabaseScope.of(context).addProduct(Product(code: code.text, specification: spec.text,
-                unitPriceCents: Fixed.parse(price.text, decimals: 2)));
-              if (ctx.mounted) Navigator.pop(ctx, true);
-            } catch (e) { if (ctx.mounted) await _error(ctx, e); }
-          }, child: const Text('保存')),
+          FilledButton(
+            onPressed: () async {
+              if (!formKey.currentState!.validate()) return;
+              try {
+                await database.addProduct(Product(
+                  code: code, specification: spec,
+                  unitPriceCents: Fixed.parse(price, decimals: 2),
+                ));
+                if (ctx.mounted) Navigator.pop(ctx, true);
+              } catch (e) {
+                if (ctx.mounted) await _error(ctx, e);
+              }
+            },
+            child: const Text('保存'),
+          ),
         ],
-      ));
-      if (saved == true) _refresh();
-    } finally { code.dispose(); spec.dispose(); price.dispose(); }
+      ),
+    );
+    if (saved == true && mounted) _refresh();
   }
 
   @override
@@ -549,7 +600,10 @@ class _SalesPageState extends State<SalesPage> {
     super.didChangeDependencies();
     _items = DatabaseScope.of(context).sales();
   }
-  void _refresh() => setState(() => _items = DatabaseScope.of(context).sales());
+  void _refresh() {
+    final pending = DatabaseScope.of(context).sales();
+    setState(() { _items = pending; });
+  }
 
   Future<void> _exportCsv(List<Sale> sales) async {
     final bundle = SalesCsvExporter.generate(sales);
@@ -622,40 +676,49 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
 
   Future<void> _receive() async {
     final database = DatabaseScope.of(context);
-    final amount = TextEditingController(text: Fixed.format(_sale.currentDueCents, decimals: 2));
-    final method = ValueNotifier<String>('微信');
-    try {
-      final confirmed = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+    var amount = Fixed.format(_sale.currentDueCents, decimals: 2);
+    var method = '微信';
+    final confirmed = await showDialog<bool>(context: context, builder: (ctx) =>
+      AlertDialog(
         title: const Text('登记收款'),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
           Text('本单剩余未收：¥${Fixed.format(_sale.currentDueCents, decimals: 2)}'),
           const SizedBox(height: 14),
-          TextField(controller: amount, decoration: const InputDecoration(labelText: '本次收款金额（元）'),
+          TextFormField(
+            initialValue: amount,
+            onChanged: (v) => amount = v,
+            decoration: const InputDecoration(labelText: '本次收款金额（元）'),
             keyboardType: const TextInputType.numberWithOptions(decimal: true)),
           const SizedBox(height: 12),
-          ValueListenableBuilder<String>(valueListenable: method, builder: (ctx, selected, _) =>
-            DropdownButtonFormField<String>(initialValue: selected,
-              items: const ['微信', '支付宝', '现金', '银行转账', '其他']
-                .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-              onChanged: (v) { if (v != null) method.value = v; },
-              decoration: const InputDecoration(labelText: '收款方式'))),
+          DropdownButtonFormField<String>(
+            initialValue: '微信',
+            items: const ['微信', '支付宝', '现金', '银行转账', '其他']
+              .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+            onChanged: (v) { if (v != null) method = v; },
+            decoration: const InputDecoration(labelText: '收款方式'),
+          ),
         ]),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确认收款')),
         ],
-      ));
-      if (confirmed != true) return;
-      setState(() => _busy = true);
-      await database.addPayment(_sale, Fixed.parse(amount.text, decimals: 2), method: method.value);
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await database.addPayment(_sale, Fixed.parse(amount, decimals: 2), method: method);
       final updated = await database.saleById(_sale.id);
       if (updated == null) throw StateError('收款已入账，但刷新单据失败，请检查历史记录');
       if (mounted) {
         setState(() => _sale = updated);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('收款已保存')));
       }
-    } catch (e) { if (mounted) await _error(context, e); }
-    finally { amount.dispose(); method.dispose(); if (mounted) setState(() => _busy = false); }
+    } catch (e) {
+      if (mounted) await _error(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _print(bool share) async {
