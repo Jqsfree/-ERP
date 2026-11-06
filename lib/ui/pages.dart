@@ -6,6 +6,8 @@ import 'dart:convert';
 import 'dart:async';
 
 import 'database_scope.dart';
+import 'backup_page.dart';
+import '../application/backup_store.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
 import '../services/invoice_pdf.dart';
@@ -27,6 +29,7 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final store = DatabaseScope.of(context);
     final tiles = <({String name, IconData icon, VoidCallback? action})>[
       (name: '销售', icon: Icons.receipt_long, action: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SaleEditorPage()))),
       (name: '采购', icon: Icons.shopping_cart, action: null),
@@ -39,6 +42,10 @@ class HomePage extends StatelessWidget {
     ];
     return Scaffold(
       appBar: AppBar(title: const Text('$_brand · 开单管理'), actions: [
+        if (store is BackupStore)
+          IconButton(tooltip: '数据备份与恢复', icon: const Icon(Icons.backup_outlined),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(
+              builder: (_) => BackupPage(store: store)))),
         IconButton(tooltip: '销售记录', icon: const Icon(Icons.history),
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SalesPage()))),
       ]),
