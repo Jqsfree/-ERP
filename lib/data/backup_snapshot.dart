@@ -9,7 +9,7 @@ class BackupSnapshot {
 
   static const format = 'kaibao.sqlite.snapshot';
   static const version = 1;
-  static const schemaVersion = 2;
+  static const schemaVersion = 3;
   static const maxJsonLength = 32 * 1024 * 1024;
   static const maxRowsPerTable = 50000;
 
@@ -27,6 +27,17 @@ class BackupSnapshot {
     ],
     'payments': ['id', 'sale_id', 'amount_cents', 'method', 'remark', 'created_at'],
     'sale_drafts': ['id', 'payload', 'updated_at'],
+    'suppliers': ['id', 'name', 'phone', 'address', 'note', 'active'],
+    'purchase_orders': [
+      'id', 'number', 'date', 'supplier_id', 'supplier_name_snapshot',
+      'supplier_phone_snapshot', 'supplier_address_snapshot',
+      'status', 'total_cents', 'note', 'created_at',
+    ],
+    'purchase_lines': [
+      'id', 'purchase_order_id', 'product_id', 'code_snapshot',
+      'spec_snapshot', 'length_milli', 'width_milli', 'unit_cost_cents',
+      'amount_cents', 'note',
+    ],
   };
 
   final String createdAt;
@@ -56,12 +67,28 @@ class BackupSnapshot {
     final decoded = jsonDecode(input);
     if (decoded is! Map<String, dynamic> ||
         decoded['format'] != format || decoded['version'] != version ||
-        decoded['schemaVersion'] != schemaVersion ||
+        (decoded['schemaVersion'] != schemaVersion && decoded['schemaVersion'] != 2) ||
         decoded['createdAt'] is! String) {
       throw const FormatException('备份格式或数据库版本不兼容');
     }
-    final tables = decoded['tables'];
-    if (tables is! Map<String, dynamic> ||
+    final rawTables = decoded['tables'];
+    if (rawTables is! Map<String, dynamic>) {
+      throw const FormatException('备份数据库表结构不完整');
+    }
+    // Older v2 archives have six tables. Preserve their original accounting
+    // rows and initialize new procurement tables as genuinely empty.
+    final tables = Map<String, dynamic>.from(rawTables);
+    if (decoded['schemaVersion'] == 2) {
+      if (tables.containsKey('suppliers') ||
+          tables.containsKey('purchase_orders') ||
+          tables.containsKey('purchase_lines')) {
+        throw const FormatException('v2 备份不应包含 v3 采购表');
+      }
+      tables['suppliers'] = <Map<String, Object?>>[];
+      tables['purchase_orders'] = <Map<String, Object?>>[];
+      tables['purchase_lines'] = <Map<String, Object?>>[];
+    }
+    if (
         tables.keys.toSet().difference(columns.keys.toSet()).isNotEmpty ||
         columns.keys.toSet().difference(tables.keys.toSet()).isNotEmpty) {
       throw const FormatException('备份数据库表结构不完整');
@@ -187,6 +214,78 @@ class BackupSnapshot {
         throw const FormatException('销售单收款金额超过合同金额');
       }
     }
+    final supplierIds = <int>{};
+    final supplierNames = <String>{};
+    for (final row in rows['suppliers']!) {
+      final id = positiveId(row['id'], 'suppliers.id');
+      if (!supplierIds.add(id)) throw const FormatException('供应商 ID 重复');
+      requireText(row['name'], '供应商名称');
+      requireText(row['phone'], '供应商电话');
+      requireText(row['address'], '供应商地址');
+      requireText(row['note'], '供应商备注');
+      final name = (row['name'] as String).trim();
+      if (name.isEmpty || !supplierNames.add(name)) {
+        throw const FormatException('供应商名称为空或重复');
+      }
+      if (row['active'] != 0 && row['active'] != 1) {
+        throw const FormatException('供应商启用状态不合法');
+      }
+    }
+    final poMap = <int, Map<String, Object?>>{};
+    final poNumbers = <String>{};
+    final poSums = <int, int>{};
+    final poLineCount = <int, int>{};
+    final purchaseLineIds = <int>{};
+    for (final row in rows['purchase_orders']!) {
+      final id = positiveId(row['id'], 'purchase_orders.id');
+      if (poMap.containsKey(id)) throw const FormatException('采购订单 ID 重复');
+      if (!supplierIds.contains(positiveId(row['supplier_id'], '采购供应商 ID'))) {
+        throw const FormatException('采购订单引用不存在的供应商');
+      }
+      for (final field in ['number', 'date', 'supplier_name_snapshot',
+                           'supplier_phone_snapshot', 'supplier_address_snapshot',
+                           'note', 'created_at']) {
+        requireText(row[field], '采购订单.$field');
+      }
+      if (!poNumbers.add(row['number'] as String)) {
+        throw const FormatException('采购订单编号重复');
+      }
+      if (row['status'] != 'ordered' && row['status'] != 'cancelled') {
+        throw const FormatException('采购订单状态不合法');
+      }
+      nonNegative(row['total_cents'], '采购金额');
+      poMap[id] = row;
+    }
+    for (final row in rows['purchase_lines']!) {
+      final lineId = positiveId(row['id'], '采购明细 ID');
+      if (!purchaseLineIds.add(lineId)) throw const FormatException('采购明细 ID 重复');
+      final poId = positiveId(row['purchase_order_id'], '采购订单 ID');
+      if (!poMap.containsKey(poId)) {
+        throw const FormatException('采购明细引用不存在的采购订单');
+      }
+      if (!products.contains(positiveId(row['product_id'], '采购产品 ID'))) {
+        throw const FormatException('采购明细引用不存在的产品');
+      }
+      requireText(row['code_snapshot'], '采购型号');
+      requireText(row['spec_snapshot'], '采购规格');
+      requireText(row['note'], '采购明细备注');
+      final len = positiveId(row['length_milli'], '采购米数');
+      final width = positiveId(row['width_milli'], '采购门幅');
+      final cost = positiveId(row['unit_cost_cents'], '采购单价');
+      final amount = nonNegative(row['amount_cents'], '采购明细金额');
+      if (amount != BillingMath.lineCents(len, width, cost)) {
+        throw const FormatException('采购金额与面积计算不一致');
+      }
+      poSums[poId] = (poSums[poId] ?? 0) + amount;
+      poLineCount[poId] = (poLineCount[poId] ?? 0) + 1;
+    }
+    for (final po in poMap.entries) {
+      if (poLineCount[po.key] == null ||
+          poSums[po.key] != po.value['total_cents']) {
+        throw const FormatException('采购订单明细小计不一致');
+      }
+    }
+
     if (rows['sale_drafts']!.length > 1) throw const FormatException('草稿数量无效');
     for (final draft in rows['sale_drafts']!) {
       if (draft['id'] != 1) throw const FormatException('草稿 ID 无效');
