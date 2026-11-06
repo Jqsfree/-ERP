@@ -25,7 +25,8 @@ class _SuppliersPageState extends State<SuppliersPage> {
   late Future<List<Supplier>> _items = widget.store.suppliers();
 
   void _reload() {
-    setState(() => _items = widget.store.suppliers());
+    final pending = widget.store.suppliers();
+    setState(() { _items = pending; });
   }
 
   Future<void> _openForm([Supplier? supplier]) async {
@@ -352,7 +353,10 @@ class PurchaseOrdersPage extends StatefulWidget {
 class _PurchaseOrdersPageState extends State<PurchaseOrdersPage> {
   late Future<List<PurchaseOrder>> _orders = widget.store.purchaseOrders();
 
-  void _reload() => setState(() => _orders = widget.store.purchaseOrders());
+  void _reload() {
+    final pending = widget.store.purchaseOrders();
+    setState(() { _orders = pending; });
+  }
 
   Future<void> _create() async {
     final id = await Navigator.push<int>(
