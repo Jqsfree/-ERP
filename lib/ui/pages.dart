@@ -30,7 +30,7 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = DatabaseScope.of(context);
-    final BackupStore? backupStore = store is BackupStore ? store : null;
+    final BackupStore? backupStore = store is BackupStore ? store as BackupStore : null;
     final tiles = <({String name, IconData icon, VoidCallback? action})>[
       (name: '销售', icon: Icons.receipt_long, action: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SaleEditorPage()))),
       (name: '采购', icon: Icons.shopping_cart, action: null),
