@@ -4,10 +4,12 @@ import 'package:sqflite/sqflite.dart';
 import '../domain/models.dart';
 import '../application/sales_store.dart';
 import '../application/backup_store.dart';
+import '../application/procurement_store.dart';
+import '../domain/procurement.dart';
 import 'backup_snapshot.dart';
 import '../domain/money.dart';
 
-class AppDatabase implements SalesStore, BackupStore {
+class AppDatabase implements SalesStore, BackupStore, ProcurementStore {
   AppDatabase._({DatabaseFactory? factory, String? databasePath, DateTime Function()? clock})
       : _factory = factory, _databasePath = databasePath, _clock = clock ?? DateTime.now;
 
@@ -17,7 +19,7 @@ class AppDatabase implements SalesStore, BackupStore {
       : this._(factory: factory, databasePath: databasePath, clock: clock);
 
   static final AppDatabase instance = AppDatabase._();
-  static const schemaVersion = 2;
+  static const schemaVersion = 3;
   final DatabaseFactory? _factory;
   final String? _databasePath;
   final DateTime Function() _clock;
@@ -74,9 +76,11 @@ class AppDatabase implements SalesStore, BackupStore {
         await db.execute('CREATE INDEX idx_sales_customer ON sales(customer_id, status)');
         await db.execute('CREATE INDEX idx_payments_sale ON payments(sale_id)');
         await db.execute(_draftSchema);
+        await _createProcurementSchema(db);
       },
       onUpgrade: (db, from, to) async {
         if (from < 2) await db.execute(_draftSchema);
+        if (from < 3) await _createProcurementSchema(db);
       },
       ),
     );
@@ -87,6 +91,44 @@ class AppDatabase implements SalesStore, BackupStore {
     payload TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )''';
+
+  static Future<void> _createProcurementSchema(DatabaseExecutor db) async {
+    await db.execute('''CREATE TABLE suppliers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      phone TEXT NOT NULL DEFAULT '',
+      address TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1))
+    )''');
+    await db.execute('''CREATE TABLE purchase_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      number TEXT NOT NULL UNIQUE,
+      date TEXT NOT NULL,
+      supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+      supplier_name_snapshot TEXT NOT NULL,
+      supplier_phone_snapshot TEXT NOT NULL,
+      supplier_address_snapshot TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('ordered', 'cancelled')),
+      total_cents INTEGER NOT NULL CHECK(total_cents >= 0),
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE purchase_lines (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      purchase_order_id INTEGER NOT NULL REFERENCES purchase_orders(id),
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      code_snapshot TEXT NOT NULL,
+      spec_snapshot TEXT NOT NULL DEFAULT '',
+      length_milli INTEGER NOT NULL CHECK(length_milli > 0),
+      width_milli INTEGER NOT NULL CHECK(width_milli > 0),
+      unit_cost_cents INTEGER NOT NULL CHECK(unit_cost_cents > 0),
+      amount_cents INTEGER NOT NULL CHECK(amount_cents >= 0),
+      note TEXT NOT NULL DEFAULT ''
+    )''');
+    await db.execute('CREATE INDEX idx_purchase_orders_supplier ON purchase_orders(supplier_id, status)');
+    await db.execute('CREATE INDEX idx_purchase_lines_order ON purchase_lines(purchase_order_id)');
+  }
 
   /// Operational drafts are persisted in SQLite, NOT a second cache of balances.
   /// A single-device P0 editor has only one active draft.
@@ -147,6 +189,160 @@ class AppDatabase implements SalesStore, BackupStore {
     await (await db).insert('products', {
       'code': item.code.trim(), 'specification': item.specification.trim(),
       'unit_price_cents': item.unitPriceCents,
+    });
+  }
+
+  @override
+  Future<List<Supplier>> suppliers({bool includeInactive = true}) async {
+    final rows = await (await db).query('suppliers',
+      where: includeInactive ? null : 'active = 1',
+      orderBy: 'name COLLATE NOCASE');
+    return rows.map(Supplier.fromMap).toList();
+  }
+
+  @override
+  Future<void> addSupplier(Supplier supplier) async {
+    if (supplier.name.trim().isEmpty) throw ArgumentError('供应商名称不能为空');
+    await (await db).insert('suppliers', {
+      'name': supplier.name.trim(), 'phone': supplier.phone.trim(),
+      'address': supplier.address.trim(), 'note': supplier.note.trim(),
+      'active': supplier.active ? 1 : 0,
+    });
+  }
+
+  @override
+  Future<void> updateSupplier(Supplier supplier) async {
+    if (supplier.id == null || supplier.name.trim().isEmpty) {
+      throw ArgumentError('供应商 ID 与名称不能为空');
+    }
+    final rows = await (await db).update('suppliers', {
+      'name': supplier.name.trim(), 'phone': supplier.phone.trim(),
+      'address': supplier.address.trim(), 'note': supplier.note.trim(),
+      'active': supplier.active ? 1 : 0,
+    }, where: 'id = ?', whereArgs: [supplier.id]);
+    if (rows != 1) throw StateError('供应商不存在');
+  }
+
+  @override
+  Future<int> createPurchaseOrder({
+    required int supplierId, required List<PurchaseLine> lines, String note = '',
+  }) async {
+    if (lines.isEmpty) throw ArgumentError('采购订单至少需要一条明细');
+    for (final item in lines) {
+      if (item.lengthMilli <= 0 || item.widthMilli <= 0 || item.unitCostCents <= 0) {
+        throw ArgumentError('采购米数、门幅和单价必须大于零');
+      }
+    }
+    return (await db).transaction((tx) async {
+      final suppliers = await tx.query('suppliers',
+        where: 'id = ?', whereArgs: [supplierId]);
+      if (suppliers.isEmpty) throw ArgumentError('供应商不存在');
+      final supplier = Supplier.fromMap(suppliers.single);
+      if (!supplier.active) throw StateError('停用供应商不能创建采购订单');
+
+      // Validate product identity inside the same transaction. Product names and
+      // specifications are frozen from authoritative product records.
+      final persisted = <PurchaseLine>[];
+      for (final line in lines) {
+        final products = await tx.query('products',
+          where: 'id = ?', whereArgs: [line.productId]);
+        if (products.isEmpty) throw ArgumentError('采购明细引用了不存在的产品');
+        final product = Product.fromMap(products.single);
+        persisted.add(PurchaseLine(
+          productId: line.productId, code: product.code,
+          specification: product.specification, lengthMilli: line.lengthMilli,
+          widthMilli: line.widthMilli, unitCostCents: line.unitCostCents,
+          note: line.note.trim(),
+        ));
+      }
+      final now = _clock();
+      final date = '${now.year.toString().padLeft(4, '0')}-'
+          '${now.month.toString().padLeft(2, '0')}-'
+          '${now.day.toString().padLeft(2, '0')}';
+      final prefix = 'CG${date.replaceAll('-', '')}';
+      final ids = await tx.rawQuery('''
+        SELECT COALESCE(MAX(CAST(SUBSTR(number, ?) AS INTEGER)),0) AS latest
+        FROM purchase_orders WHERE number LIKE ?
+      ''', [prefix.length + 1, '$prefix%']);
+      final next = (ids.single['latest'] as int) + 1;
+      final number = '$prefix${next.toString().padLeft(4, '0')}';
+      final subtotal = persisted.fold<int>(0, (sum, row) => sum + row.amountCents);
+      final id = await tx.insert('purchase_orders', {
+        'number': number, 'date': date, 'supplier_id': supplierId,
+        'supplier_name_snapshot': supplier.name,
+        'supplier_phone_snapshot': supplier.phone,
+        'supplier_address_snapshot': supplier.address,
+        'status': 'ordered', 'total_cents': subtotal,
+        'note': note.trim(), 'created_at': now.toIso8601String(),
+      });
+      for (final line in persisted) {
+        await tx.insert('purchase_lines', {
+          'purchase_order_id': id, 'product_id': line.productId,
+          'code_snapshot': line.code, 'spec_snapshot': line.specification,
+          'length_milli': line.lengthMilli, 'width_milli': line.widthMilli,
+          'unit_cost_cents': line.unitCostCents, 'amount_cents': line.amountCents,
+          'note': line.note,
+        });
+      }
+      return id;
+    });
+  }
+
+  Future<List<PurchaseOrder>> _loadPurchaseOrders({int? id}) async {
+    final database = await db;
+    final rows = await database.query('purchase_orders',
+      where: id == null ? null : 'id = ?', whereArgs: id == null ? null : [id],
+      orderBy: 'id DESC');
+    if (rows.isEmpty) return [];
+    final lines = <int, List<PurchaseLine>>{};
+    final ids = rows.map((row) => row['id'] as int).toList();
+    for (var offset = 0; offset < ids.length; offset += 400) {
+      final chunk = ids.skip(offset).take(400).toList();
+      final ph = List.filled(chunk.length, '?').join(',');
+      final results = await database.rawQuery(
+        'SELECT * FROM purchase_lines WHERE purchase_order_id IN ($ph) ORDER BY purchase_order_id, id',
+        chunk,
+      );
+      for (final row in results) {
+        (lines[row['purchase_order_id'] as int] ??= []).add(PurchaseLine.fromMap(row));
+      }
+    }
+    return rows.map((row) {
+      final key = row['id'] as int;
+      return PurchaseOrder(
+        id: key, number: row['number'] as String, date: row['date'] as String,
+        supplierId: row['supplier_id'] as int,
+        supplierName: row['supplier_name_snapshot'] as String,
+        supplierPhone: row['supplier_phone_snapshot'] as String,
+        supplierAddress: row['supplier_address_snapshot'] as String,
+        status: row['status'] as String,
+        totalCents: row['total_cents'] as int,
+        note: row['note'] as String,
+        lines: lines[key] ?? const [],
+      );
+    }).toList();
+  }
+
+  @override
+  Future<List<PurchaseOrder>> purchaseOrders() => _loadPurchaseOrders();
+
+  @override
+  Future<PurchaseOrder?> purchaseOrderById(int id) async {
+    final orders = await _loadPurchaseOrders(id: id);
+    return orders.isEmpty ? null : orders.single;
+  }
+
+  @override
+  Future<void> cancelPurchaseOrder(int id) async {
+    final database = await db;
+    await database.transaction((tx) async {
+      final rows = await tx.query('purchase_orders', where: 'id = ?', whereArgs: [id]);
+      if (rows.isEmpty) throw StateError('采购订单不存在');
+      if (rows.single['status'] == 'cancelled') return;
+      if (rows.single['status'] != 'ordered') throw StateError('当前状态不能取消采购订单');
+      final count = await tx.update('purchase_orders',
+        {'status': 'cancelled'}, where: 'id = ? AND status = ?', whereArgs: [id, 'ordered']);
+      if (count != 1) throw StateError('采购订单状态发生变化');
     });
   }
 
