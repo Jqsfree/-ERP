@@ -28,13 +28,10 @@ jobs:
           cache: true
       - name: Generate native Android runner (no overwrite of Dart code)
         run: flutter create --platforms=android --project-name kaibao_sales --org com.kaibao .
-      - name: Get dependencies
-        run: flutter pub get
-      - name: Export generated dependency lock for review
+      - name: Get locked dependencies
         run: |
-          echo 'KAIBAO_LOCKFILE_BEGIN'
-          cat pubspec.lock
-          echo 'KAIBAO_LOCKFILE_END'
+          flutter pub get --enforce-lockfile
+          git diff --exit-code -- pubspec.lock
       - name: Dart tests
         run: flutter test --reporter expanded --coverage
       - name: Upload test coverage
