@@ -2,9 +2,10 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
 import '../domain/models.dart';
+import '../application/sales_store.dart';
 import '../domain/money.dart';
 
-class AppDatabase {
+class AppDatabase implements SalesStore {
   AppDatabase._({DatabaseFactory? factory, String? databasePath, DateTime Function()? clock})
       : _factory = factory, _databasePath = databasePath, _clock = clock ?? DateTime.now;
 
