@@ -9,7 +9,7 @@ main.dart
   └─ DatabaseScope（UI 可注入测试用 AppDatabase）
        └─ UI/pages.dart（输入、草稿和视图交互）
             ├─ Domain: models.dart / money.dart
-            ├─ Data: AppDatabase（SQLite schema v4, transaction, migration）
+            ├─ Data: AppDatabase（SQLite schema v5, transaction, migration）
             ├─ Output: SalesCsvExporter（纯数据转换，订单与明细分表）
             └─ Output: InvoicePdf（Flutter canvas / Android printing）
 ```
@@ -39,6 +39,7 @@ Schema 版本：
 - v2：增加 `sale_drafts`；保留 v1 业务数据。
 - v3：供应商、采购订单和采购明细，订单不直接影响库存及应付。
 - v4：仓库、采购收货、收货明细与库存流水；按采购行部分收货，事务/请求标识防重复。
+- v5：新增销售出库及销售实物退货四表；不更改原有入库事件，统一视图按正负库存运动推导余额。
 - 迁移通过 `onUpgrade`，不允许破坏性删除旧表。每次升级需新增从真实前版数据库迁移的自动化测试。
 
 ## 3. 金额不变量
@@ -76,10 +77,10 @@ CreateSale / UpdateSaleDraft
                          v
                    Stock movements
 Payment (独立事件) ----> Receivables
-Return (引用原出库) ---> Reverse stock movement + Refund/Credit
+PhysicalReturn (引用原出库) --> 正向入库流水\nCreditNote / Refund (待实现) --> 独立财务凭证
 ```
 
-**阻断项**：当前只支持米数×门幅折合面积计价/入库，没有卷/匹/套换算、销售出库、退款/冲销、完整会计/审计日志；只有手动加密备份，未通过真机恢复演练。不能称作已完成 ERP。
+**阻断项**：当前只支持米数×门幅折合面积计价/入库，没有卷/匹/套换算、独立退款/贷项/冲销、完整会计/审计日志；只有手动加密备份，未通过真机恢复演练。不能称作已完成 ERP。
 
 ## 6. 质量门禁
 
@@ -105,3 +106,13 @@ Return (引用原出库) ---> Reverse stock movement + Refund/Credit
 - v4 备份包含新增四表和一致性校验，支持旧 v2/v3 备份恢复到新空库。
 
 详见 [两模块实施计划](erp-module-roadmap-2026-11-07.md)。
+
+## 8. 销售出库与实物退货（schema v5）
+
+- `FulfillmentStore` 是应用接口；`FulfillmentRepository` 独立承载 SQLite 锁定事务和幂等，`AppDatabase` 仅做应用组合与端口注入。UI 不构造原始 SQL。
+- 新增 `sale_dispatches` / `sale_dispatch_lines` 和 `sale_returns` / `sale_return_lines` 四张事件凭证表，不修改 v4 `stock_movements` 记录。
+- `stock_ledger_entries` 是 SQLite 只读视图：采购收货（正）、销售出库（负）、原出库关联退货（正）；`stockBalances()` 统一求和，没有双写缓存。
+- 真实出库在同一 SQLite 事务重核销售行、仓库/批次、累计已出米数与库存余额。缺少销售产品 ID 的历史手工明细不允许猜测并扣库存。
+- 原出库行和实物退货一一可追溯；累计实物退回不大于出库米数，且只能回原仓和批次。资金冲销独立于实物退货，**绝不自动重写销售应收或已收款**。
+- 快照 v5 引入四表并校验原销售/原出库关系、面积、数量上限、库存非负、请求键和内容一致性；原 v2/v3/v4 快照恢复时，v5 表按空表创建。
+- Android 软键盘、脱机中断、真实分享、打印仍待用户设备验收；源码可编译或 GitHub CI 成功不等于发布就绪。

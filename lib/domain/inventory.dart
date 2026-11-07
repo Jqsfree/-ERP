@@ -56,6 +56,7 @@ class StockMovementRecord {
     required this.id, required this.receiptNumber, required this.productCode,
     required this.warehouseCode, required this.batchCode,
     required this.deltaAreaMicro, required this.createdAt,
+    this.sourceType = 'purchase_receipt',
   });
   final int id;
   final String receiptNumber;
@@ -64,6 +65,7 @@ class StockMovementRecord {
   final String batchCode;
   final int deltaAreaMicro;
   final String createdAt;
+  final String sourceType;
 }
 
 class StockBalance {

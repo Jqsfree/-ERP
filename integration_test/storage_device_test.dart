@@ -6,6 +6,7 @@ import 'package:kaibao_sales/data/app_database.dart';
 import 'package:kaibao_sales/domain/models.dart';
 import 'package:kaibao_sales/domain/procurement.dart';
 import 'package:kaibao_sales/domain/inventory.dart';
+import 'package:kaibao_sales/domain/fulfillment.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
@@ -51,6 +52,17 @@ void main() {
       expect(receiptId, greaterThan(0));
       expect((await store.stockBalances()).single.areaMicro, 1400000);
       expect((await store.receivableLines(purchaseId)).single.remainingLengthMilli, 500);
+      final saleLineId = (await store.dispatchableLines(id)).single.lineId;
+      final dispatchId = await store.postSaleDispatch(
+        saleId: id, requestKey: 'android-outbound-device-001',
+        lines: [DispatchInputLine(saleLineId: saleLineId, warehouseId: warehouseId,
+          lengthMilli: 400, batchCode: 'T1')]);
+      expect((await store.stockBalances()).single.areaMicro, 280000);
+      final dispatchLineId = (await store.returnableLines(dispatchId)).single.lineId;
+      await store.postSaleReturn(
+        dispatchId: dispatchId, requestKey: 'android-physical-return-001',
+        lines: [ReturnInputLine(dispatchLineId: dispatchLineId, lengthMilli: 200)]);
+      expect((await store.stockBalances()).single.areaMicro, 840000);
       expect(await store.integrityOk(), isTrue);
       await store.close();
 
@@ -62,8 +74,10 @@ void main() {
         expect(sale.currentDueCents, 94900);
         expect((await reopened.suppliers()).single.name, '设备测试供应商');
         expect((await reopened.purchaseOrders()).single.totalCents, 2800);
-        expect((await reopened.stockBalances()).single.areaMicro, 1400000);
-        expect((await reopened.stockMovements()).single.batchCode, 'T1');
+        expect((await reopened.stockBalances()).single.areaMicro, 840000);
+        expect((await reopened.stockMovements()), hasLength(3));
+        expect((await reopened.saleDispatches()).single.id, dispatchId);
+        expect((await reopened.saleReturns()).single.dispatchId, dispatchId);
         expect(await reopened.customerOutstanding(customer.id!), 95400);
         expect(await reopened.integrityOk(), isTrue);
       } finally {

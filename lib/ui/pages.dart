@@ -8,6 +8,8 @@ import 'dart:async';
 import 'database_scope.dart';
 import 'backup_page.dart';
 import 'procurement_pages.dart';
+import 'fulfillment_pages.dart';
+import '../application/fulfillment_store.dart';
 import 'inventory_pages.dart';
 import '../application/inventory_store.dart';
 import '../application/procurement_store.dart';
@@ -51,7 +53,9 @@ class HomePage extends StatelessWidget {
       (name: '库存', icon: Icons.warehouse,
         action: inventory == null ? null : () => Navigator.push(context,
           MaterialPageRoute(builder: (_) => InventoryPage(store: inventory)))),
-      (name: '退货', icon: Icons.swap_horiz, action: null),
+      (name: '退货', icon: Icons.swap_horiz,
+        action: store is FulfillmentStore ? () => Navigator.push(context,
+          MaterialPageRoute(builder: (_) => const SalesPage())) : null),
       (name: '费用收入', icon: Icons.account_balance_wallet, action: null),
     ];
     return Scaffold(
@@ -760,10 +764,15 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
   @override
   Widget build(BuildContext context) {
     final sale = _sale;
+    final store = DatabaseScope.of(context);
+    final FulfillmentStore? fulfillment =
+      store is FulfillmentStore ? store as FulfillmentStore : null;
+    final InventoryStore? inventory =
+      store is InventoryStore ? store as InventoryStore : null;
     return Scaffold(
-      appBar: AppBar(title: const Text('销售出货单详情')),
+      appBar: AppBar(title: const Text('销售单详情')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
-        Center(child: Text('$_brand销售出货单', style: Theme.of(context).textTheme.headlineSmall)),
+        Center(child: Text('$_brand销售单', style: Theme.of(context).textTheme.headlineSmall)),
         const SizedBox(height: 10),
         Text('NO.${sale.number}'),
         Text('客户：${sale.customerName}'),
@@ -811,6 +820,15 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
         const SizedBox(height: 8),
         FilledButton.tonalIcon(onPressed: _busy || sale.currentDueCents == 0 ? null : _receive,
           icon: const Icon(Icons.payments), label: const Text('登记后续收款')),
+        if (fulfillment != null && inventory != null) ...[
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _busy ? null : () => Navigator.push(context, MaterialPageRoute(
+              builder: (_) => SaleFulfillmentPage(
+                saleId: sale.id, fulfillment: fulfillment, inventory: inventory))),
+            icon: const Icon(Icons.local_shipping_outlined),
+            label: const Text('销售出库 / 关联实物退货')),
+        ],
         const SizedBox(height: 12),
         const Text('本单金额和客户信息以保存时快照为准；后续收款不会修改原始销售行。',
           style: TextStyle(color: Colors.grey)),

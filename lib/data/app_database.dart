@@ -8,13 +8,17 @@ import '../application/sales_store.dart';
 import '../application/backup_store.dart';
 import '../application/procurement_store.dart';
 import '../application/inventory_store.dart';
+import '../application/fulfillment_store.dart';
+import '../domain/fulfillment.dart';
+import 'fulfillment_schema.dart';
+import 'fulfillment_repository.dart';
 import '../domain/inventory.dart';
 import 'inventory_schema.dart';
 import '../domain/procurement.dart';
 import 'backup_snapshot.dart';
 import '../domain/money.dart';
 
-class AppDatabase implements SalesStore, BackupStore, ProcurementStore, InventoryStore {
+class AppDatabase implements SalesStore, BackupStore, ProcurementStore, InventoryStore, FulfillmentStore {
   AppDatabase._({DatabaseFactory? factory, String? databasePath, DateTime Function()? clock})
       : _factory = factory, _databasePath = databasePath, _clock = clock ?? DateTime.now;
 
@@ -24,7 +28,7 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
       : this._(factory: factory, databasePath: databasePath, clock: clock);
 
   static final AppDatabase instance = AppDatabase._();
-  static const schemaVersion = 4;
+  static const schemaVersion = 5;
   final DatabaseFactory? _factory;
   final String? _databasePath;
   final DateTime Function() _clock;
@@ -83,11 +87,13 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
         await db.execute(_draftSchema);
         await _createProcurementSchema(db);
         await InventorySchema.create(db);
+        await FulfillmentSchema.create(db);
       },
       onUpgrade: (db, from, to) async {
         if (from < 2) await db.execute(_draftSchema);
         if (from < 3) await _createProcurementSchema(db);
         if (from < 4) await InventorySchema.create(db);
+        if (from < 5) await FulfillmentSchema.create(db);
       },
       ),
     );
@@ -526,17 +532,16 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
   @override
   Future<List<StockMovementRecord>> stockMovements() async {
     final rows = await (await db).rawQuery('''
-      SELECT m.id, m.delta_area_micro, m.batch_code, m.created_at,
-        p.code AS product_code, w.code AS warehouse_code, r.number AS receipt_number
-      FROM stock_movements m
-      JOIN purchase_receipt_lines rl ON rl.id=m.receipt_line_id
-      JOIN purchase_receipts r ON r.id=rl.receipt_id
-      JOIN products p ON p.id=m.product_id
+      SELECT m.event_id, m.source_type, m.document_number,
+        m.delta_area_micro, m.batch_code, m.created_at,
+        p.code AS product_code, w.code AS warehouse_code
+      FROM stock_ledger_entries m JOIN products p ON p.id=m.product_id
       JOIN warehouses w ON w.id=m.warehouse_id
-      ORDER BY m.id DESC
+      ORDER BY m.created_at DESC, m.source_type, m.event_id DESC
     ''');
     return rows.map((r) => StockMovementRecord(
-      id: r['id'] as int, receiptNumber: r['receipt_number'] as String,
+      id: r['event_id'] as int, receiptNumber: r['document_number'] as String,
+      sourceType: r['source_type'] as String,
       productCode: r['product_code'] as String,
       warehouseCode: r['warehouse_code'] as String,
       batchCode: r['batch_code'] as String,
@@ -551,7 +556,7 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
       SELECT m.product_id, p.code AS product_code, m.warehouse_id,
         w.code AS warehouse_code, m.batch_code,
         SUM(m.delta_area_micro) AS area
-      FROM stock_movements m JOIN products p ON p.id=m.product_id
+      FROM stock_ledger_entries m JOIN products p ON p.id=m.product_id
       JOIN warehouses w ON w.id=m.warehouse_id
       GROUP BY m.product_id, m.warehouse_id, m.batch_code
       ORDER BY w.code, p.code, m.batch_code
@@ -565,6 +570,43 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
       areaMicro: r['area'] as int,
     )).toList();
   }
+
+  Future<FulfillmentRepository> _fulfillment() async =>
+    FulfillmentRepository(await db, _clock);
+
+  @override
+  Future<List<DispatchLineProgress>> dispatchableLines(int saleId) async =>
+    (await _fulfillment()).dispatchableLines(saleId);
+
+  @override
+  Future<int> postSaleDispatch({
+    required int saleId,
+    required String requestKey,
+    required List<DispatchInputLine> lines,
+    String note = '',
+  }) async => (await _fulfillment()).postSaleDispatch(
+    saleId: saleId, requestKey: requestKey, lines: lines, note: note);
+
+  @override
+  Future<List<DispatchRecord>> saleDispatches({int? saleId}) async =>
+    (await _fulfillment()).saleDispatches(saleId: saleId);
+
+  @override
+  Future<List<ReturnLineProgress>> returnableLines(int dispatchId) async =>
+    (await _fulfillment()).returnableLines(dispatchId);
+
+  @override
+  Future<int> postSaleReturn({
+    required int dispatchId,
+    required String requestKey,
+    required List<ReturnInputLine> lines,
+    String note = '',
+  }) async => (await _fulfillment()).postSaleReturn(
+    dispatchId: dispatchId, requestKey: requestKey, lines: lines, note: note);
+
+  @override
+  Future<List<ReturnRecord>> saleReturns({int? dispatchId}) async =>
+    (await _fulfillment()).saleReturns(dispatchId: dispatchId);
 
   @override
   Future<int> customerOutstanding(int customerId, {Transaction? tx}) async {
