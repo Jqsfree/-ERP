@@ -63,6 +63,16 @@ void main() {
         dispatchId: dispatchId, requestKey: 'android-physical-return-001',
         lines: [ReturnInputLine(dispatchLineId: dispatchLineId, lengthMilli: 200)]);
       expect((await store.stockBalances()).single.areaMicro, 840000);
+      await store.recordCashEntry(
+        kind: 'expense', method: '现金', category: '设备测试运费',
+        amountCents: 300, requestKey: 'android-v6-expense-0001');
+      final finance = await store.dayStatement('2026-11-07');
+      expect(finance.salesReceiptsCents, 50000);
+      expect(finance.otherExpenseCents, 300);
+      await store.closeDay(day: '2026-11-07',
+        requestKey: 'android-v6-day-close-0001',
+        actualNetByMethod: finance.expectedNetByMethod);
+      expect((await store.dayClose('2026-11-07'))!.hasDifference, isFalse);
       expect(await store.integrityOk(), isTrue);
       await store.close();
 
@@ -78,6 +88,9 @@ void main() {
         expect((await reopened.stockMovements()), hasLength(3));
         expect((await reopened.saleDispatches()).single.id, dispatchId);
         expect((await reopened.saleReturns()).single.dispatchId, dispatchId);
+        expect((await reopened.cashEntries()).single.amountCents, 300);
+        expect((await reopened.dayClose('2026-11-07'))!.hasDifference, isFalse);
+        expect((await reopened.dayStatement('2026-11-07')).expectedNetCents, 49700);
         expect(await reopened.customerOutstanding(customer.id!), 95400);
         expect(await reopened.integrityOk(), isTrue);
       } finally {
