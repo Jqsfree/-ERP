@@ -1,10 +1,16 @@
 import 'dart:math';
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'package:flutter/material.dart';
 
 import '../application/finance_store.dart';
 import '../domain/finance.dart';
 import '../domain/money.dart';
+import '../services/finance_csv.dart';
 
 String _cashText(int cents) => '¥${Fixed.format(cents, decimals: 2)}';
 
@@ -228,15 +234,23 @@ class _CashbookPageState extends State<CashbookPage> {
 /// Close compares daily net movements, not account balances. Real cash/bank
 /// statements are manually supplied and a mismatch requires an explanation.
 class DayClosePage extends StatefulWidget {
-  const DayClosePage({super.key, required this.store});
+  const DayClosePage({super.key, required this.store, this.initialDay});
   final FinanceStore store;
+  final String? initialDay;
   @override
   State<DayClosePage> createState() => _DayClosePageState();
 }
 
 class _DayClosePageState extends State<DayClosePage> {
-  String _day = FinanceMath.day(DateTime.now());
-  late Future<({DayStatement statement, DayClose? close})> _data = _load();
+  late String _day;
+  late Future<({DayStatement statement, DayClose? close})> _data;
+
+  @override
+  void initState() {
+    super.initState();
+    _day = widget.initialDay ?? FinanceMath.day(DateTime.now());
+    _data = _load();
+  }
   final _actual = <String, String>{};
   String _reason = '';
   bool _saving = false;
@@ -251,11 +265,28 @@ class _DayClosePageState extends State<DayClosePage> {
     setState(() { _data = next; });
   }
 
+  Future<void> _export(DayStatement report, DayClose close) async {
+    try {
+      final csv = FinanceCsvExporter.generate(report, close);
+      final dir = await getTemporaryDirectory();
+      final file = File(p.join(dir.path, 'kaibao_day_close_${close.day}.csv'));
+      await file.writeAsString(csv, flush: true);
+      await SharePlus.instance.share(ShareParams(
+        files: [XFile(file.path)], text: '凯堡软装日结对账 ${close.day}',
+        subject: '凯堡软装日结对账 ${close.day}'));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('日结报告导出未完成：$e')));
+      }
+    }
+  }
+
   Future<void> _pickDay() async {
     final selected = await showDatePicker(
       context: context,
       initialDate: DateTime.parse(_day),
-      firstDate: DateTime(2020),
+      firstDate: DateTime(1970),
       lastDate: DateTime.now(),
     );
     if (selected == null || !mounted) return;
@@ -309,6 +340,9 @@ class _DayClosePageState extends State<DayClosePage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('日结对账'),
       actions: [
+        IconButton(tooltip: '日结历史', icon: const Icon(Icons.history),
+          onPressed: () => Navigator.push(context, MaterialPageRoute(
+            builder: (_) => DayCloseHistoryPage(store: widget.store)))),
         IconButton(tooltip: '选择日结日期', onPressed: _pickDay,
           icon: const Icon(Icons.event)),
         IconButton(tooltip: '刷新日结', onPressed: _refresh,
@@ -375,6 +409,10 @@ class _DayClosePageState extends State<DayClosePage> {
               icon: const Icon(Icons.fact_check),
               label: Text(_saving ? '提交中…' : '确认关账并冻结当日资金流水')),
           ] else ...[
+            OutlinedButton.icon(
+              onPressed: _saving ? null : () => _export(summary, close),
+              icon: const Icon(Icons.table_view),
+              label: const Text('分享日结对账 CSV')),
             ListTile(title: const Text('日结差异说明'),
               subtitle: Text(close.varianceReason.isEmpty ?
                 '账实一致，无需差异原因' : close.varianceReason)),
@@ -383,6 +421,43 @@ class _DayClosePageState extends State<DayClosePage> {
           ],
           const SizedBox(height: 80),
         ]);
+      },
+    ),
+  );
+}
+
+
+/// Read-only historical closure listing. Opening an item checks live sources
+/// against the stored closure, rather than blindly trusting the snapshot.
+class DayCloseHistoryPage extends StatelessWidget {
+  const DayCloseHistoryPage({super.key, required this.store});
+  final FinanceStore store;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('日结历史')),
+    body: FutureBuilder<List<DayClose>>(
+      future: store.closedDays(),
+      builder: (context, snap) {
+        if (snap.hasError) return Center(child: Text('读取日结历史失败：${snap.error}'));
+        if (!snap.hasData) return const Center(child: CircularProgressIndicator());
+        final days = snap.data!;
+        if (days.isEmpty) return const Center(child: Text('还没有已保存的日结对账记录'));
+        return ListView.builder(itemCount: days.length,
+          itemBuilder: (context, index) {
+            final record = days[index];
+            return ListTile(
+              title: Text(record.day),
+              subtitle: Text(record.hasDifference
+                ? '账实有差异 · ${record.varianceReason}' : '账实一致'),
+              trailing: Text(record.hasDifference
+                ? _cashText(record.totalDifferenceCents) : '一致'),
+              onTap: () => Navigator.push(context, MaterialPageRoute(
+                builder: (_) => DayClosePage(
+                  store: store, initialDay: record.day))),
+            );
+          },
+        );
       },
     ),
   );
