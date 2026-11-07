@@ -26,7 +26,7 @@ class _InventoryPageState extends State<InventoryPage> {
 
   void _reload() {
     final next = _load();
-    setState(() => _data = next);
+    setState(() { _data = next; });
   }
 
   Future<void> _addWarehouse() async {
