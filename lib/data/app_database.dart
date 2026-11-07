@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
@@ -5,11 +7,14 @@ import '../domain/models.dart';
 import '../application/sales_store.dart';
 import '../application/backup_store.dart';
 import '../application/procurement_store.dart';
+import '../application/inventory_store.dart';
+import '../domain/inventory.dart';
+import 'inventory_schema.dart';
 import '../domain/procurement.dart';
 import 'backup_snapshot.dart';
 import '../domain/money.dart';
 
-class AppDatabase implements SalesStore, BackupStore, ProcurementStore {
+class AppDatabase implements SalesStore, BackupStore, ProcurementStore, InventoryStore {
   AppDatabase._({DatabaseFactory? factory, String? databasePath, DateTime Function()? clock})
       : _factory = factory, _databasePath = databasePath, _clock = clock ?? DateTime.now;
 
@@ -19,7 +24,7 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore {
       : this._(factory: factory, databasePath: databasePath, clock: clock);
 
   static final AppDatabase instance = AppDatabase._();
-  static const schemaVersion = 3;
+  static const schemaVersion = 4;
   final DatabaseFactory? _factory;
   final String? _databasePath;
   final DateTime Function() _clock;
@@ -77,10 +82,12 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore {
         await db.execute('CREATE INDEX idx_payments_sale ON payments(sale_id)');
         await db.execute(_draftSchema);
         await _createProcurementSchema(db);
+        await InventorySchema.create(db);
       },
       onUpgrade: (db, from, to) async {
         if (from < 2) await db.execute(_draftSchema);
         if (from < 3) await _createProcurementSchema(db);
+        if (from < 4) await InventorySchema.create(db);
       },
       ),
     );
@@ -340,10 +347,223 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore {
       if (rows.isEmpty) throw StateError('采购订单不存在');
       if (rows.single['status'] == 'cancelled') return;
       if (rows.single['status'] != 'ordered') throw StateError('当前状态不能取消采购订单');
+      final received = await tx.rawQuery(
+        'SELECT COUNT(*) AS n FROM purchase_receipts WHERE purchase_order_id = ?', [id]);
+      if ((received.single['n'] as int) > 0) {
+        throw StateError('采购单已经发生收货，必须通过退货/冲销流程修正，不能直接取消');
+      }
       final count = await tx.update('purchase_orders',
         {'status': 'cancelled'}, where: 'id = ? AND status = ?', whereArgs: [id, 'ordered']);
       if (count != 1) throw StateError('采购订单状态发生变化');
     });
+  }
+
+  @override
+  Future<List<Warehouse>> warehouses() async {
+    final data = await (await db).query('warehouses', orderBy: 'code COLLATE NOCASE');
+    return data.map((r) => Warehouse(
+      id: r['id'] as int, code: r['code'] as String,
+      name: r['name'] as String, active: r['active'] == 1)).toList();
+  }
+
+  @override
+  Future<int> addWarehouse({required String code, required String name}) async {
+    final normalizedCode = code.trim().toUpperCase();
+    final normalizedName = name.trim();
+    if (normalizedCode.isEmpty || normalizedName.isEmpty ||
+        normalizedCode.length > 32 || normalizedName.length > 100) {
+      throw ArgumentError('仓库编码或名称不合法');
+    }
+    return (await db).insert('warehouses',
+      {'code': normalizedCode, 'name': normalizedName, 'active': 1});
+  }
+
+  @override
+  Future<List<ReceiptLineProgress>> receivableLines(int purchaseOrderId) async {
+    final data = await (await db).rawQuery('''
+      SELECT pl.id AS line_id, pl.product_id, pl.code_snapshot,
+        pl.length_milli, pl.width_milli,
+        COALESCE((SELECT SUM(rl.length_milli)
+          FROM purchase_receipt_lines rl JOIN purchase_receipts pr
+          ON pr.id = rl.receipt_id
+          WHERE rl.purchase_line_id = pl.id AND pr.purchase_order_id = ?), 0) AS received
+      FROM purchase_lines pl WHERE pl.purchase_order_id = ? ORDER BY pl.id
+    ''', [purchaseOrderId, purchaseOrderId]);
+    return data.map((r) => ReceiptLineProgress(
+      lineId: r['line_id'] as int,
+      productId: r['product_id'] as int,
+      code: r['code_snapshot'] as String,
+      orderedLengthMilli: r['length_milli'] as int,
+      receivedLengthMilli: r['received'] as int,
+      widthMilli: r['width_milli'] as int,
+    )).toList();
+  }
+
+  @override
+  Future<int> postPurchaseReceipt({
+    required int purchaseOrderId,
+    required String requestKey,
+    required List<ReceiptInputLine> lines,
+    String note = '',
+  }) async {
+    final key = requestKey.trim();
+    if (key.length < 12 || key.length > 128) {
+      throw ArgumentError('收货请求标识格式不合法');
+    }
+    if (lines.isEmpty) throw ArgumentError('至少需要一条收货明细');
+    final normalized = lines.map((l) => ReceiptInputLine(
+      purchaseLineId: l.purchaseLineId, warehouseId: l.warehouseId,
+      lengthMilli: l.lengthMilli, batchCode: l.batchCode.trim())).toList()
+      ..sort((a,b) => a.purchaseLineId.compareTo(b.purchaseLineId));
+    final ids = <int>{};
+    for (final line in normalized) {
+      if (line.purchaseLineId <= 0 || line.warehouseId <= 0 ||
+          line.lengthMilli <= 0 || !ids.add(line.purchaseLineId) ||
+          line.batchCode.length > 80) {
+        throw ArgumentError('收货明细包含重复采购行或无效米数、仓库、批次');
+      }
+    }
+    final payload = jsonEncode({
+      'purchaseOrderId': purchaseOrderId, 'note': note.trim(),
+      'lines': normalized.map((l) => {
+        'line': l.purchaseLineId, 'warehouse': l.warehouseId,
+        'lengthMilli': l.lengthMilli, 'batch': l.batchCode,
+      }).toList(),
+    });
+    return (await db).transaction((tx) async {
+      final prior = await tx.query('purchase_receipts',
+        columns: ['id', 'payload'], where: 'request_key = ?', whereArgs: [key]);
+      if (prior.isNotEmpty) {
+        if (prior.single['payload'] != payload) {
+          throw StateError('请求标识已关联其他收货内容，拒绝重复加库存');
+        }
+        return prior.single['id'] as int;
+      }
+      final order = await tx.query('purchase_orders',
+        columns: ['status'], where: 'id = ?', whereArgs: [purchaseOrderId]);
+      if (order.isEmpty || order.single['status'] != 'ordered') {
+        throw StateError('采购订单不存在或已取消，禁止收货');
+      }
+      final prepared = <({ReceiptInputLine input, int productId, int width, int area})>[];
+      for (final input in normalized) {
+        final rows = await tx.query('purchase_lines', where: 'id = ? AND purchase_order_id = ?',
+          whereArgs: [input.purchaseLineId, purchaseOrderId]);
+        if (rows.isEmpty) throw ArgumentError('收货明细不属于这张采购单');
+        final row = rows.single;
+        final wh = await tx.query('warehouses', columns: ['active'],
+          where: 'id = ?', whereArgs: [input.warehouseId]);
+        if (wh.isEmpty || wh.single['active'] != 1) {
+          throw ArgumentError('收货仓库不存在或已停用');
+        }
+        final received = await tx.rawQuery(
+          'SELECT COALESCE(SUM(length_milli),0) AS n FROM purchase_receipt_lines WHERE purchase_line_id = ?',
+          [input.purchaseLineId]);
+        final remaining = (row['length_milli'] as int) - (received.single['n'] as int);
+        if (input.lengthMilli > remaining) {
+          throw StateError('收货米数超过采购行的剩余米数');
+        }
+        final width = row['width_milli'] as int;
+        final area = input.lengthMilli * width;
+        if (area <= 0 || area > 9223372036854775807) {
+          throw ArgumentError('收货面积超出存储范围');
+        }
+        prepared.add((input: input, productId: row['product_id'] as int,
+          width: width, area: area));
+      }
+      final now = _clock();
+      final date = '${now.year.toString().padLeft(4, '0')}-'
+        '${now.month.toString().padLeft(2, '0')}-'
+        '${now.day.toString().padLeft(2, '0')}';
+      final prefix = 'SH${date.replaceAll('-', '')}';
+      final last = await tx.rawQuery('''
+        SELECT COALESCE(MAX(CAST(SUBSTR(number, ?) AS INTEGER)),0) AS latest
+        FROM purchase_receipts WHERE number LIKE ?
+      ''', [prefix.length + 1, '$prefix%']);
+      final serial = (last.single['latest'] as int) + 1;
+      final receiptId = await tx.insert('purchase_receipts', {
+        'number': '$prefix${serial.toString().padLeft(4, '0')}',
+        'purchase_order_id': purchaseOrderId,
+        'request_key': key, 'payload': payload,
+        'created_at': now.toIso8601String(), 'note': note.trim(),
+      });
+      for (final line in prepared) {
+        final input = line.input;
+        final receiptLineId = await tx.insert('purchase_receipt_lines', {
+          'receipt_id': receiptId, 'purchase_line_id': input.purchaseLineId,
+          'warehouse_id': input.warehouseId, 'batch_code': input.batchCode,
+          'length_milli': input.lengthMilli, 'width_milli': line.width,
+          'area_micro': line.area,
+        });
+        await tx.insert('stock_movements', {
+          'receipt_line_id': receiptLineId, 'product_id': line.productId,
+          'warehouse_id': input.warehouseId, 'batch_code': input.batchCode,
+          'delta_area_micro': line.area, 'created_at': now.toIso8601String(),
+        });
+      }
+      return receiptId;
+    });
+  }
+
+  @override
+  Future<List<PurchaseReceiptRecord>> purchaseReceipts({int? purchaseOrderId}) async {
+    final rows = await (await db).rawQuery('''
+      SELECT r.*, o.number AS order_number,
+        COALESCE((SELECT SUM(l.area_micro) FROM purchase_receipt_lines l
+          WHERE l.receipt_id=r.id),0) AS area
+      FROM purchase_receipts r JOIN purchase_orders o ON o.id=r.purchase_order_id
+      ${purchaseOrderId == null ? '' : 'WHERE r.purchase_order_id = ?'}
+      ORDER BY r.id DESC
+    ''', purchaseOrderId == null ? [] : [purchaseOrderId]);
+    return rows.map((r) => PurchaseReceiptRecord(
+      id: r['id'] as int, number: r['number'] as String,
+      purchaseOrderId: r['purchase_order_id'] as int,
+      orderNumber: r['order_number'] as String,
+      note: r['note'] as String, createdAt: r['created_at'] as String,
+      totalAreaMicro: r['area'] as int,
+    )).toList();
+  }
+
+  @override
+  Future<List<StockMovementRecord>> stockMovements() async {
+    final rows = await (await db).rawQuery('''
+      SELECT m.id, m.delta_area_micro, m.batch_code, m.created_at,
+        p.code AS product_code, w.code AS warehouse_code, r.number AS receipt_number
+      FROM stock_movements m
+      JOIN purchase_receipt_lines rl ON rl.id=m.receipt_line_id
+      JOIN purchase_receipts r ON r.id=rl.receipt_id
+      JOIN products p ON p.id=m.product_id
+      JOIN warehouses w ON w.id=m.warehouse_id
+      ORDER BY m.id DESC
+    ''');
+    return rows.map((r) => StockMovementRecord(
+      id: r['id'] as int, receiptNumber: r['receipt_number'] as String,
+      productCode: r['product_code'] as String,
+      warehouseCode: r['warehouse_code'] as String,
+      batchCode: r['batch_code'] as String,
+      deltaAreaMicro: r['delta_area_micro'] as int,
+      createdAt: r['created_at'] as String,
+    )).toList();
+  }
+
+  @override
+  Future<List<StockBalance>> stockBalances() async {
+    final rows = await (await db).rawQuery('''
+      SELECT m.product_id, p.code AS product_code, m.warehouse_id,
+        w.code AS warehouse_code, m.batch_code,
+        SUM(m.delta_area_micro) AS area
+      FROM stock_movements m JOIN products p ON p.id=m.product_id
+      JOIN warehouses w ON w.id=m.warehouse_id
+      GROUP BY m.product_id, m.warehouse_id, m.batch_code
+      ORDER BY w.code, p.code, m.batch_code
+    ''');
+    return rows.map((r) => StockBalance(
+      productId: r['product_id'] as int,
+      productCode: r['product_code'] as String,
+      warehouseId: r['warehouse_id'] as int,
+      warehouseCode: r['warehouse_code'] as String,
+      batchCode: r['batch_code'] as String,
+      areaMicro: r['area'] as int,
+    )).toList();
   }
 
   @override
