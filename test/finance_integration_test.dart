@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaibao_sales/data/app_database.dart';
 import 'package:kaibao_sales/data/backup_snapshot.dart';
-import 'package:kaibao_sales/domain/finance.dart';
 import 'package:kaibao_sales/domain/models.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
