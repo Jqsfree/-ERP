@@ -51,4 +51,15 @@ void main() {
         '=SUM(1,1)': 101});
     expect(() => FinanceCsvExporter.generate(bad, close), throwsStateError);
   });
+  test('两个渠道的误差互相抵消时仍必须判定存在差异', () {
+    final close = DayClose(
+      id: 1, day: '2026-11-07',
+      expectedNetByMethod: {'现金': 10000, '微信': 0},
+      actualNetByMethod: {'现金': 0, '微信': 10000},
+      varianceReason: '渠道错分', createdAt: '2026-11-07T21:00:00');
+    expect(close.totalDifferenceCents, 0);
+    expect(close.hasDifference, isTrue);
+    expect(close.differenceByMethod.values.where((x) => x != 0), hasLength(2));
+  });
+
 }
