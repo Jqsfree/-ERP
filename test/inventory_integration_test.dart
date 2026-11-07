@@ -142,6 +142,9 @@ void main() {
     await db.addCustomer(const Customer(name: 'v3 客户'));
     await db.close();
     final old = await databaseFactoryFfi.openDatabase(path);
+    await old.execute('DROP TABLE day_closures');
+    await old.execute('DROP TABLE cash_entries');
+    await old.execute('DROP INDEX idx_payments_created_at');
     await old.execute('DROP VIEW stock_ledger_entries');
     for (final name in ['sale_return_lines', 'sale_returns',
         'sale_dispatch_lines', 'sale_dispatches']) {
@@ -204,7 +207,8 @@ void main() {
       tables.remove(name);
     }
     for (final name in ['sale_dispatches', 'sale_dispatch_lines',
-        'sale_returns', 'sale_return_lines']) { tables.remove(name); }
+        'sale_returns', 'sale_return_lines',
+        'cash_entries', 'day_closures']) { tables.remove(name); }
     final archive = jsonEncode(content);
     expect(BackupSnapshot.parse(archive).counts['warehouses'], 0);
     final restore = AppDatabase.forTesting(factory: databaseFactoryFfi,

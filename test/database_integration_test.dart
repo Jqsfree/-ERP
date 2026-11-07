@@ -127,7 +127,7 @@ void main() {
     }
   });
 
-  test('数据库 v1 -> v2 迁移保留客户且增加草稿表', () async {
+  test('数据库 v1 -> v6 迁移保留旧客户与原始收款表', () async {
     await db.close();
     final legacy = await databaseFactoryFfi.openDatabase(path,
       options: OpenDatabaseOptions(version: 1,
@@ -136,6 +136,41 @@ void main() {
             id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
             phone TEXT NOT NULL DEFAULT '', address TEXT NOT NULL DEFAULT '',
             opening_balance_cents INTEGER NOT NULL DEFAULT 0)''');
+          // Simulate the complete original v1 database, not a sparse stub.
+          // v6 indexes the pre-existing payments table.
+          await raw.execute('''CREATE TABLE products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE,
+            specification TEXT NOT NULL DEFAULT '',
+            unit_price_cents INTEGER NOT NULL CHECK(unit_price_cents >= 0))''');
+          await raw.execute('''CREATE TABLE sales (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            number TEXT NOT NULL UNIQUE, date TEXT NOT NULL,
+            customer_id INTEGER NOT NULL REFERENCES customers(id),
+            customer_name_snapshot TEXT NOT NULL,
+            customer_phone_snapshot TEXT NOT NULL,
+            customer_address_snapshot TEXT NOT NULL,
+            subtotal_cents INTEGER NOT NULL, discount_cents INTEGER NOT NULL,
+            prior_due_snapshot INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'confirmed',
+            note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)''');
+          await raw.execute('''CREATE TABLE sale_lines (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sale_id INTEGER NOT NULL REFERENCES sales(id),
+            product_id INTEGER REFERENCES products(id),
+            code_snapshot TEXT NOT NULL,
+            spec_snapshot TEXT NOT NULL DEFAULT '',
+            length_milli INTEGER NOT NULL CHECK(length_milli > 0),
+            width_milli INTEGER NOT NULL CHECK(width_milli > 0),
+            unit_price_cents INTEGER NOT NULL CHECK(unit_price_cents >= 0),
+            amount_cents INTEGER NOT NULL, note TEXT NOT NULL DEFAULT '')''');
+          await raw.execute('''CREATE TABLE payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sale_id INTEGER NOT NULL REFERENCES sales(id),
+            amount_cents INTEGER NOT NULL CHECK(amount_cents > 0),
+            method TEXT NOT NULL DEFAULT '其他',
+            remark TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)''');
+          await raw.execute('CREATE INDEX idx_sales_customer ON sales(customer_id, status)');
+          await raw.execute('CREATE INDEX idx_payments_sale ON payments(sale_id)');
           await raw.insert('customers', {
             'name': '旧客户', 'phone': '', 'address': '',
             'opening_balance_cents': 12500,

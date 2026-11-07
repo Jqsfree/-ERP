@@ -220,6 +220,9 @@ void main() {
     final oldDue = (await db.saleById(sale))!.currentDueCents;
     await db.close();
     final old = await databaseFactoryFfi.openDatabase(path);
+    await old.execute('DROP TABLE day_closures');
+    await old.execute('DROP TABLE cash_entries');
+    await old.execute('DROP INDEX idx_payments_created_at');
     await old.execute('DROP VIEW stock_ledger_entries');
     for (final table in ['sale_return_lines','sale_returns',
       'sale_dispatch_lines','sale_dispatches']) {
@@ -230,7 +233,7 @@ void main() {
 
     final migrated = AppDatabase.forTesting(factory: databaseFactoryFfi, databasePath: path);
     try {
-      expect(await (await migrated.db).getVersion(), 5);
+      expect(await (await migrated.db).getVersion(), AppDatabase.schemaVersion);
       expect((await migrated.stockBalances()).single.areaMicro, oldBalance);
       expect((await migrated.saleById(sale))!.currentDueCents, oldDue);
       expect(await migrated.saleDispatches(), isEmpty);
@@ -273,7 +276,7 @@ void main() {
     old['schemaVersion'] = 4;
     final tables = old['tables'] as Map<String, dynamic>;
     for (final table in ['sale_dispatches','sale_dispatch_lines',
-      'sale_returns','sale_return_lines']) { tables.remove(table); }
+      'sale_returns','sale_return_lines','cash_entries','day_closures']) { tables.remove(table); }
     expect(BackupSnapshot.parse(jsonEncode(old)).counts['sale_returns'], 0);
     final legacy = AppDatabase.forTesting(factory: databaseFactoryFfi,
       databasePath: p.join(temp.path, 'legacy-v4-restore.db'));

@@ -206,7 +206,8 @@ void main() {
     tables.remove('purchase_orders');
     tables.remove('purchase_lines');
     for (final table in ['sale_dispatches', 'sale_dispatch_lines',
-        'sale_returns', 'sale_return_lines']) { tables.remove(table); }
+        'sale_returns', 'sale_return_lines',
+        'cash_entries', 'day_closures']) { tables.remove(table); }
     for (final name in ['warehouses', 'purchase_receipts',
         'purchase_receipt_lines', 'stock_movements']) {
       tables.remove(name);

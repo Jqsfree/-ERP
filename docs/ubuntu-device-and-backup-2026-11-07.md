@@ -53,7 +53,7 @@ fvm flutter test integration_test/storage_device_test.dart -d <设备ID>
 
 首页右上角的“数据备份与恢复”：
 1. 点击**创建加密备份并分享**；输入并重复至少 12 字符的口令。
-2. 应用在同一 SQLite 事务读取六张表（包括草稿），生成严格校验的逻辑快照。
+2. 应用在同一 SQLite 事务读取当前 `BackupSnapshot.columns` 明确列出的全部业务表（v6 共 19 张，包含草稿、采购、收货、出库、退货、资金及日结），生成严格校验的逻辑快照。
 3. 在内存中使用 PBKDF2-HMAC-SHA256 210000 次导出 256 位密钥，每次随机 16B 盐；使用 AES-256-GCM 的随机 nonce 加密。
 4. **只有密文**会写到临时 `.kberp` 文件；选择系统分享目标将文件保存到电脑、外接存储或其他设备。打开分享面板不代表离机备份已经成功。
 5. 密码不会储存在软件中；遗失后无法解密。
@@ -77,21 +77,21 @@ fvm flutter test integration_test/storage_device_test.dart -d <设备ID>
 | 加密备份 | roundtrip、随机盐、错误密码、篡改检查 | 文件在机外可找到 |
 | 账务恢复 | 完整金额/外键校验、原子提交 | 全新设备还原比对 |
 | 非空数据库保护 | 测试导入拒绝且原数据存在 | 在人工测试环境验证 |
-| 可用 ERP | 不提供虚假的空入口验收 | 出库、退货、冲销、库存依然未完成 |
+| 可用 ERP | 出库、实物退货、库存及其他资金冲销已有代码和测试 | 真机、财务总账、供应商应付、客户贷项仍待验与实现 |
 
 ## 5. 不做的事
 
 - 不在 Flutter/Ubuntu 安装目录内保存业务数据；不把 SDK、IDE 缓存提交 Git。
 - 不覆盖已有数据库，不自动上传客户资料、不引入云端同步。
-- 不宣称实现完整 ERP 财务总账、库存流水、税务发票或生产发布。
+- 不宣称实现完整 ERP 财务总账、所有库存估值规则、税务发票或生产发布。
 - 不把“可以运行”、“CI 全绿”、“真机经过测试”混为一谈。
 
 官方参考：Flutter [Android 集成测试](https://docs.flutter.dev/testing/integration-tests)、[Android Gradle 构建](https://developer.android.com/build)、[SQLite 持久化](https://docs.flutter.dev/cookbook/persistence/sqlite)；加密库 [cryptography](https://pub.dev/packages/cryptography)、原生文件选择器 [file_picker](https://pub.dev/packages/file_picker)。
 
-## 后续 SQLite v4：采购收货与库存流水
+## SQLite v4–v6：增量业务模块及真机测试
 
-本文件最初描述的是 v3 基线。现在 `main` 的下一个两模块批次 `feat/receiving-stock-ledger-20261107` 在保持 v2/v3 向前迁移和备份兼容的前提下新增 v4 仓库、收货及库存流水。
+本文件最初描述 v3 基线，后续已经合并 v4 仓库与收货、v5 销售出库与实物退货；v6 新增其他资金收支、反向冲销及日结对账。所有版本向前迁移；逻辑加密备份兼容历史 v2–v5。
 
 真机用例 `integration_test/storage_device_test.dart` 增加真实 Android SQLite 的收货→关闭→重开→面积与批次校验。该测试代码必须由用户在安卓手机上运行才算设备通过。
 
-详见 [业务两模块计划](erp-module-roadmap-2026-11-07.md)。
+真机用例在独立测试数据库中进一步验证其他资金收支→日结→关闭→重开；不触及正式 `kaibao_sales.db`。涉及真实银行流水核对及 CSV 分享时仍需人工提供设备证据。详见 [业务两模块计划](erp-module-roadmap-2026-11-07.md)。

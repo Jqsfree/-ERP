@@ -9,6 +9,8 @@ import 'database_scope.dart';
 import 'backup_page.dart';
 import 'procurement_pages.dart';
 import 'fulfillment_pages.dart';
+import 'finance_pages.dart';
+import '../application/finance_store.dart';
 import '../application/fulfillment_store.dart';
 import 'inventory_pages.dart';
 import '../application/inventory_store.dart';
@@ -39,6 +41,7 @@ class HomePage extends StatelessWidget {
     final BackupStore? backupStore = store is BackupStore ? store as BackupStore : null;
     final ProcurementStore? procurement = store is ProcurementStore ? store as ProcurementStore : null;
     final InventoryStore? inventory = store is InventoryStore ? store as InventoryStore : null;
+    final FinanceStore? finance = store is FinanceStore ? store as FinanceStore : null;
     final tiles = <({String name, IconData icon, VoidCallback? action})>[
       (name: '销售', icon: Icons.receipt_long, action: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SaleEditorPage()))),
       (name: '采购', icon: Icons.shopping_cart,
@@ -56,7 +59,12 @@ class HomePage extends StatelessWidget {
       (name: '退货', icon: Icons.swap_horiz,
         action: store is FulfillmentStore ? () => Navigator.push(context,
           MaterialPageRoute(builder: (_) => const SalesPage())) : null),
-      (name: '费用收入', icon: Icons.account_balance_wallet, action: null),
+      (name: '费用收支', icon: Icons.account_balance_wallet,
+        action: finance == null ? null : () => Navigator.push(context,
+          MaterialPageRoute(builder: (_) => CashbookPage(store: finance)))),
+      (name: '日结对账', icon: Icons.fact_check_outlined,
+        action: finance == null ? null : () => Navigator.push(context,
+          MaterialPageRoute(builder: (_) => DayClosePage(store: finance)))),
     ];
     return Scaffold(
       appBar: AppBar(title: const Text('$_brand · 开单管理'), actions: [
@@ -71,8 +79,8 @@ class HomePage extends StatelessWidget {
         const Padding(padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
           child: Card(child: ListTile(
             leading: Icon(Icons.offline_bolt_outlined),
-            title: Text('单机离线开单 · v0.1'),
-            subtitle: Text('先录入客户和产品，再创建销售出货单。数据保存在本机。'),
+            title: Text('单机离线业务管理 · 开发测试版'),
+            subtitle: Text('销售与实物库存分离，其他资金收支和日结独立记账。正式使用前需要真机验收。'),
           ))),
         Expanded(child: GridView.builder(
           padding: const EdgeInsets.all(16),
@@ -84,7 +92,7 @@ class HomePage extends StatelessWidget {
             return Card(color: tile.action == null ? Theme.of(context).colorScheme.surfaceContainer : null,
               child: InkWell(borderRadius: BorderRadius.circular(12),
                 onTap: tile.action ?? () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('此模块在第二阶段实现；首版优先保证开单与收款准确。'))),
+                  const SnackBar(content: Text('此模块尚未开放，不能用于真实经营记账。'))),
                 child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                   Icon(tile.icon, size: 38, color: tile.action == null ? Colors.grey : Theme.of(context).colorScheme.primary),
                   const SizedBox(height: 12), Text(tile.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),

@@ -77,3 +77,23 @@ flutter build apk --debug
 | 真机实际 SQLite | `storage_device_test.dart` | 收货→出库→退货→关闭重开，单号/余额正确 | **未执行** |
 
 **合并 gate**：GitHub CI 在本批最终 SHA 通过锁文件、测试、严格分析、Debug APK；真实安卓的独立数据库测试及人工输入结果未出具时不得标记“真机通过”。
+
+## v6 费用收支 + 日结对账（第四批门禁）
+
+| 场景 | 自动化测试 | 预期信号 | Android 实地 |
+|---|---|---|---|
+| 销售收款与其他收入分离 | `finance_integration_test.dart` | 只从原 payments 读取原销售货款，不重复登记收入，不修改客户欠款 | 待验 |
+| 其他费用/收入与反向冲销 | `finance_integration_test.dart` | 整数分记账，原凭证保留，冲销不可重复，次日反冲不改历史日结 | 待验 |
+| 同键重试、并发、错误金额 | `finance_integration_test.dart` | 相同内容返回原 ID，变更内容拒绝，不产生重复净额 | 待验 |
+| 日结渠道账实核对 | `finance_integration_test.dart` | 五渠道净变动，实际额缺失拒绝，差异必须填写原因 | 待验 |
+| 关账后销售收款/其他收支 | `finance_integration_test.dart` | SQLite 事务拒绝变动，绕过 API 修改有回放报警 | 待验 |
+| v5→v6 迁移及旧加密备份 | `finance_integration_test.dart` | 旧销售/收款保持完整，v6 新表为空；恶意快照拒绝 | 待设备升级演练 |
+| 费用收支与日结界面实际输入 | `finance_widget_test.dart` | 分类金额、冲销原因、人工各渠道净变动真实进入应用端口 | 待真机软键盘 |
+| Android SQLite 持久化 | `storage_device_test.dart` | 临时独立库写入→关账→关闭重开，不碰正式经营数据 | **未执行** |
+
+**本批仅在 GitHub Actions 的最终 SHA 上全部通过 Flutter tests、flutter analyze 和 Debug APK 后才合并开发 main。** Android 真机及真实外部支付流水核对尚未取得验收记录，不允许宣称正式运营可用。
+
+### 导出与历史核对补充
+
+- `finance_csv_test.dart` 验证：每个渠道各一行、合计一行，原销售收款及其他收支来源只在合计处展示，避免重复相加；UTF-8 BOM/CRLF、安全处理 Excel 公式类文本，快照失配不得导出。
+- `DayCloseHistoryPage` 展示已关账日期，点开历史会重算对照保存的快照；分享 CSV 需要 Android 真机验证原生分享和文件落地。**打开分享面板不等于文件已经保存到设备外。**

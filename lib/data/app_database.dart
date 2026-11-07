@@ -9,6 +9,10 @@ import '../application/backup_store.dart';
 import '../application/procurement_store.dart';
 import '../application/inventory_store.dart';
 import '../application/fulfillment_store.dart';
+import '../application/finance_store.dart';
+import '../domain/finance.dart';
+import 'finance_schema.dart';
+import 'finance_repository.dart';
 import '../domain/fulfillment.dart';
 import 'fulfillment_schema.dart';
 import 'fulfillment_repository.dart';
@@ -18,7 +22,7 @@ import '../domain/procurement.dart';
 import 'backup_snapshot.dart';
 import '../domain/money.dart';
 
-class AppDatabase implements SalesStore, BackupStore, ProcurementStore, InventoryStore, FulfillmentStore {
+class AppDatabase implements SalesStore, BackupStore, ProcurementStore, InventoryStore, FulfillmentStore, FinanceStore {
   AppDatabase._({DatabaseFactory? factory, String? databasePath, DateTime Function()? clock})
       : _factory = factory, _databasePath = databasePath, _clock = clock ?? DateTime.now;
 
@@ -28,7 +32,7 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
       : this._(factory: factory, databasePath: databasePath, clock: clock);
 
   static final AppDatabase instance = AppDatabase._();
-  static const schemaVersion = 5;
+  static const schemaVersion = 6;
   final DatabaseFactory? _factory;
   final String? _databasePath;
   final DateTime Function() _clock;
@@ -88,12 +92,14 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
         await _createProcurementSchema(db);
         await InventorySchema.create(db);
         await FulfillmentSchema.create(db);
+        await FinanceSchema.create(db);
       },
       onUpgrade: (db, from, to) async {
         if (from < 2) await db.execute(_draftSchema);
         if (from < 3) await _createProcurementSchema(db);
         if (from < 4) await InventorySchema.create(db);
         if (from < 5) await FulfillmentSchema.create(db);
+        if (from < 6) await FinanceSchema.create(db);
       },
       ),
     );
@@ -608,6 +614,48 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
   Future<List<ReturnRecord>> saleReturns({int? dispatchId}) async =>
     (await _fulfillment()).saleReturns(dispatchId: dispatchId);
 
+  Future<FinanceRepository> _finance() async =>
+    FinanceRepository(await db, _clock);
+
+  @override
+  Future<int> recordCashEntry({
+    required String kind, required String method, required String category,
+    required int amountCents, required String requestKey, String note = '',
+  }) async => (await _finance()).recordCashEntry(
+    kind: kind, method: method, category: category, amountCents: amountCents,
+    requestKey: requestKey, note: note);
+
+  @override
+  Future<int> reverseCashEntry({
+    required int originalEntryId, required String requestKey,
+    required String reason,
+  }) async => (await _finance()).reverseCashEntry(
+    originalEntryId: originalEntryId, requestKey: requestKey, reason: reason);
+
+  @override
+  Future<List<CashEntry>> cashEntries({String? day}) async =>
+    (await _finance()).cashEntries(day: day);
+
+  @override
+  Future<DayStatement> dayStatement(String day) async =>
+    (await _finance()).dayStatement(day);
+
+  @override
+  Future<int> closeDay({
+    required String day, required String requestKey,
+    required Map<String, int> actualNetByMethod, String varianceReason = '',
+  }) async => (await _finance()).closeDay(
+    day: day, requestKey: requestKey,
+    actualNetByMethod: actualNetByMethod, varianceReason: varianceReason);
+
+  @override
+  Future<DayClose?> dayClose(String day) async =>
+    (await _finance()).dayClose(day);
+
+  @override
+  Future<List<DayClose>> closedDays() async =>
+    (await _finance()).closedDays();
+
   @override
   Future<int> customerOutstanding(int customerId, {Transaction? tx}) async {
     final database = tx ?? await db;
@@ -665,6 +713,11 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
         });
       }
       if (initialReceivedCents > 0) {
+        final closure = await tx.query('day_closures',
+          columns: ['id'], where: 'business_date=?', whereArgs: [date]);
+        if (closure.isNotEmpty) {
+          throw StateError('当天已经日结，不允许补记开单收款');
+        }
         await tx.insert('payments', {
           'sale_id': saleId, 'amount_cents': initialReceivedCents,
           'method': '其他', 'remark': '开单收款', 'created_at': now.toIso8601String(),
@@ -726,7 +779,14 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
   @override
   Future<void> addPayment(Sale sale, int amountCents, {String method = '其他'}) async {
     if (amountCents <= 0) throw ArgumentError('收款金额必须大于零');
+    if (!FinanceMath.methods.contains(method)) {
+      throw ArgumentError('收款渠道应为微信/支付宝/现金/银行转账/其他');
+    }
     await (await db).transaction((tx) async {
+      final day = FinanceMath.day(_clock());
+      final closed = await tx.query('day_closures',
+        columns: ['id'], where: 'business_date=?', whereArgs: [day]);
+      if (closed.isNotEmpty) throw StateError('当天已日结，不允许追加销售收款');
       final r = await tx.rawQuery('''SELECT s.status,
         (s.subtotal_cents-s.discount_cents-COALESCE((SELECT SUM(p.amount_cents)
          FROM payments p WHERE p.sale_id=s.id),0)) AS due
