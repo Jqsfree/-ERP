@@ -1,8 +1,14 @@
 # 凯堡软装销售开单（Kaibao Sales）
 
-面向软装/布料商户的 Android 离线开单应用。**当前版本：v0.1.0（审查整改分支；仍是原型，尚未通过真实设备完整验收）**。
+面向软装/布料商户的 Android 离线开单应用。**当前代码版本：0.1.0+1，SQLite v6；GitHub CI 通过，但尚未完成 Android 实机 MVP 验收。**
 
 > 本仓库是独立实现，不是 ERPNext / Invoice Ninja 的二次分发。
+
+## 当前唯一开发目标：离线销售开单 MVP
+
+**冻结新增 ERP 业务模块。** 下一阶段只完成 Android 真机输入、销售开单/收款、PDF/CSV 实际分享、SQLite 持久化、离机备份恢复与签名升级等发布阻断项。详见 [MVP 收尾与验收契约](docs/mvp-release-gate-2026-11-07.md)。
+
+现有采购、库存、实物退货和日结代码保留，但不再以“每两模块一批”继续扩建；未经真机验证不能对外宣称可商用。
 
 ## 当前已编写的功能（不等于已在安卓验证）
 
@@ -19,7 +25,7 @@
 - 销售记录导出两份 UTF-8 BOM CSV（销售单、销售明细）供 Excel/WPS 查阅（不是 XLSX）；整单金额不在每条明细上重复。
 - 草稿保存在 SQLite `sale_drafts` 中；停顿约 650ms 自动写入、支持手动保存和重新进入恢复。
 - **已合并的销售履约**：销售出库按原销售行进行分次扣减实际仓库批次库存；销售实物退货必须引用真实原出库，退回原仓库与批次。两者均不修改销售账、应收或收款。
-- **第四批开发中的两个模块**：其他资金收支（独立收入、费用及不可删除的反向冲销）与日结对账（原销售收款自动汇总、按渠道核对外部日净变动，记录差异及原因、冻结当日资金业务）；可查看历史日结并分享独立 CSV 对账报告。
+- **已有代码、尚未真机验收的两个模块**：其他资金收支（独立收入、费用及不可删除的反向冲销）与日结对账（原销售收款自动汇总、按渠道核对外部日净变动，记录差异及原因、冻结当日资金业务）；可查看历史日结并分享独立 CSV 对账报告。
 - 数据库 schema v6，保留 v1→v2→v3→v4→v5→v6 非破坏性迁移路径；SQLite 测试覆盖销售、采购、收货、出库、退货、其他收支、日结、事务和重开。
 - **本轮验证中的功能**：用户主动导出 AES-256-GCM 加密 `.kberp` 数据备份；恢复前校验账务一致性，只允许在全空 SQLite 数据库恢复。尚未完成真机验证。
 - UI 通过 DatabaseScope 注入存储依赖，输出 CSV 与设备分享 IO 分离。
@@ -57,7 +63,8 @@ Github Actions 工作流 `.github/workflows/android.yml` 会在每次 push / PR 
 
 ```bash
 git fetch origin --prune
-git switch main\ngit pull --ff-only origin main
+git switch main
+git pull --ff-only origin main
 bash scripts/doctor.sh
 bash scripts/bootstrap-ubuntu.sh
 fvm flutter test
@@ -68,7 +75,7 @@ fvm flutter run -d <设备ID>
 fvm flutter test integration_test/storage_device_test.dart -d <设备ID>
 ```
 
-当前从 `main` 获取已经合并的开发基线。复核 PR #6 的开发分支可执行 `git switch --track origin/feat/cashbook-day-close-20261107`，正式代码基线应从 `main` 拉取。切换分支前检查未提交文件。本仓库目前仍动态生成 `android/`，Gradle Wrapper 尚待纳入版本控制，不能称为完整的可复现原生构建。
+当前从 `main` 获取已经合并的开发基线。当前所有既有业务批次已合并至 `main`，不需要检出历史 PR 分支；MVP 收尾按独立审查分支推进。切换分支前检查未提交文件。本仓库目前仍动态生成 `android/`，Gradle Wrapper 尚待纳入版本控制，不能称为完整的可复现原生构建。
 
 **数据备份**：首页右上角“数据备份与恢复”允许导出带密码的 `.kberp` 文件、从系统文件选择器选择后恢复到**完全空**的数据库。密码至少 12 字符且无法找回；用户必须确认文件实际保存到了手机外部。没有任何现有数据会被覆盖。真机数据完整性及分享流程尚待验收。
 
@@ -94,7 +101,10 @@ lib/
   data/app_database.dart   SQLite v6、销售/采购/库存与资金日结事务
   services/invoice_pdf.dart 离线中文 PDF 渲染
   ui/pages.dart             销售、产品、客户、收款交互
-  ui/procurement_pages.dart  供应商与采购订单页面\n  ui/inventory_pages.dart    仓库、收货及库存流水\n  ui/fulfillment_pages.dart  销售出库及关联实物退货
+  ui/procurement_pages.dart  供应商与采购订单页面
+  ui/inventory_pages.dart    仓库、收货及库存流水
+  ui/fulfillment_pages.dart  销售出库及关联实物退货
+  ui/finance_pages.dart      其他资金收支及日结
 test/                      金额、SQLite 真实文件 IO、Widget 业务路径、CSV 安全输出测试
 docs/                      需求、设计和路线图
 .github/workflows/          安卓 CI / Debug APK
@@ -108,11 +118,20 @@ docs/                      需求、设计和路线图
 
 阶段计划见 [ERP 两模块一批的实施与测试门禁](docs/erp-module-roadmap-2026-11-07.md)。
 
-第一批**供应商 + 采购订单**、第二批**采购收货 + 库存流水**、第三批**销售出库 + 实物退货**已经合并 main 并通过 CI；第四批**其他资金收支 + 日结对账**代码见 PR #6，完成与合并状态以 GitHub 记录为准。迁移路径包括 v2→v3→v4→v5→v6，备份必须兼容 v2/v3/v4/v5。CI 通过只代表自动测试和构建通过，真机输入、持久化和备份流程需要设备验收。用户未确认的进销存单据规则不得按假设擅自录入财务或库存流水。
+历史四批业务模块（供应商/采购、入库/库存、出库/实物退货、其他资金收支/日结）均已合并 `main`，但不代表真机或商业验收。**停止开启第五批业务模块，优先执行 MVP 收尾。**迁移路径包括 v2→v3→v4→v5→v6，备份必须兼容 v2/v3/v4/v5。CI 通过只代表自动测试和构建通过，真机输入、持久化和备份流程需要设备验收。用户未确认的进销存单据规则不得按假设擅自录入财务或库存流水。
+
+## MVP 收尾优先级
+
+1. Android 原生工程纳入 Git 版本管理，确认包名和签名升级路径。
+2. 用真实安卓手机检验中文输入、销售单、收款、重启恢复、PDF/CSV 输出。
+3. 用测试业务数据验证密文备份确实离机保存，并在全新空库环境还原；验收金额/余额对账。
+4. 输出可安装候选包和逐项实测报告。没有实机证据不能称 MVP 完成。
+
+最终按 [MVP 收尾与验收契约](docs/mvp-release-gate-2026-11-07.md) 判定，不再按“新增两个模块”计算项目进度。
 
 ## 发布准则
 
-在正式启用前至少完成：安卓真机安装；前后台重进不丢单；10/100/1000 条订单稳定性；中文 PDF 多页打印；退款/作废的反向流水；可恢复的数据备份；签名密钥管理；销售总账与收款核对。见 `docs/acceptance.md`。
+内测 MVP 的阻断项是实机中文输入、开单金额/未收款精确、持久化、单据分享/打印、离机备份与空库恢复、安装升级不丢数据、构建身份可复现；1000 单性能、完整退款/作废财务、会计总账是未来扩展要求，**不作为当前最小销售开单 MVP 的门槛**。详见 `docs/mvp-release-gate-2026-11-07.md`。
 
 ## 研究参考
 
