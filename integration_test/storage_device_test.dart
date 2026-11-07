@@ -5,6 +5,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:kaibao_sales/data/app_database.dart';
 import 'package:kaibao_sales/domain/models.dart';
 import 'package:kaibao_sales/domain/procurement.dart';
+import 'package:kaibao_sales/domain/inventory.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
@@ -40,6 +41,16 @@ void main() {
         lines: [PurchaseLine(productId: product.id!, code: product.code,
           lengthMilli: 1000, widthMilli: 2800, unitCostCents: 1000)]);
       expect((await store.purchaseOrderById(purchaseId))!.totalCents, 2800);
+      final warehouseId = await store.addWarehouse(
+        code: 'ANDROID-MAIN', name: '真机测试仓');
+      final purchaseLineId = (await store.receivableLines(purchaseId)).single.lineId;
+      final receiptId = await store.postPurchaseReceipt(
+        purchaseOrderId: purchaseId, requestKey: 'android-sqlite-receipt-001',
+        lines: [ReceiptInputLine(purchaseLineId: purchaseLineId,
+          warehouseId: warehouseId, lengthMilli: 500, batchCode: 'T1')]);
+      expect(receiptId, greaterThan(0));
+      expect((await store.stockBalances()).single.areaMicro, 1400000);
+      expect((await store.receivableLines(purchaseId)).single.remainingLengthMilli, 500);
       expect(await store.integrityOk(), isTrue);
       await store.close();
 
@@ -51,6 +62,8 @@ void main() {
         expect(sale.currentDueCents, 94900);
         expect((await reopened.suppliers()).single.name, '设备测试供应商');
         expect((await reopened.purchaseOrders()).single.totalCents, 2800);
+        expect((await reopened.stockBalances()).single.areaMicro, 1400000);
+        expect((await reopened.stockMovements()).single.batchCode, 'T1');
         expect(await reopened.customerOutstanding(customer.id!), 95400);
         expect(await reopened.integrityOk(), isTrue);
       } finally {
