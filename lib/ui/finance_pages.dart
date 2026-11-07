@@ -451,7 +451,8 @@ class DayCloseHistoryPage extends StatelessWidget {
               subtitle: Text(record.hasDifference
                 ? '账实有差异 · ${record.varianceReason}' : '账实一致'),
               trailing: Text(record.hasDifference
-                ? _cashText(record.totalDifferenceCents) : '一致'),
+                ? '${record.differenceByMethod.values.where((v) => v != 0).length} 个渠道有差异'
+                : '一致'),
               onTap: () => Navigator.push(context, MaterialPageRoute(
                 builder: (_) => DayClosePage(
                   store: store, initialDay: record.day))),
