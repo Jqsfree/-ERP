@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../domain/money.dart';
 import 'fulfillment_snapshot_validator.dart';
+import 'finance_snapshot_validator.dart';
 
 /// Logical SQLite snapshot contract. Its column allowlist intentionally fails
 /// closed on future schema changes until backup migrations are implemented.
@@ -10,7 +11,7 @@ class BackupSnapshot {
 
   static const format = 'kaibao.sqlite.snapshot';
   static const version = 1;
-  static const schemaVersion = 5;
+  static const schemaVersion = 6;
   static const maxJsonLength = 32 * 1024 * 1024;
   static const maxRowsPerTable = 50000;
 
@@ -66,6 +67,14 @@ class BackupSnapshot {
       'id', 'return_id', 'dispatch_line_id', 'product_id', 'warehouse_id',
       'batch_code', 'length_milli', 'width_milli', 'area_micro',
     ],
+    'cash_entries': [
+      'id','number','business_date','kind','direction','method','category',
+      'amount_cents','original_entry_id','request_key','payload','note','created_at',
+    ],
+    'day_closures': [
+      'id','business_date','request_key','expected_json','actual_json',
+      'variance_reason','created_at',
+    ],
   };
 
   final String createdAt;
@@ -95,8 +104,9 @@ class BackupSnapshot {
     final decoded = jsonDecode(input);
     if (decoded is! Map<String, dynamic> ||
         decoded['format'] != format || decoded['version'] != version ||
-        (decoded['schemaVersion'] != schemaVersion && decoded['schemaVersion'] != 4 &&
-          decoded['schemaVersion'] != 3 && decoded['schemaVersion'] != 2) ||
+        (decoded['schemaVersion'] != schemaVersion && decoded['schemaVersion'] != 5 &&
+          decoded['schemaVersion'] != 4 && decoded['schemaVersion'] != 3 &&
+          decoded['schemaVersion'] != 2) ||
         decoded['createdAt'] is! String) {
       throw const FormatException('备份格式或数据库版本不兼容');
     }
@@ -135,6 +145,15 @@ class BackupSnapshot {
                            'sale_returns', 'sale_return_lines']) {
         if (tables.containsKey(table)) {
           throw FormatException('旧版备份不能包含 v5 出库/退货表：$table');
+        }
+        tables[table] = <Map<String, Object?>>[];
+      }
+    }
+    if (decoded['schemaVersion'] == 2 || decoded['schemaVersion'] == 3 ||
+        decoded['schemaVersion'] == 4 || decoded['schemaVersion'] == 5) {
+      for (final table in ['cash_entries', 'day_closures']) {
+        if (tables.containsKey(table)) {
+          throw FormatException('旧版备份不应包含 v6 资金及日结表：$table');
         }
         tables[table] = <Map<String, Object?>>[];
       }
@@ -431,6 +450,7 @@ class BackupSnapshot {
     }
 
     FulfillmentSnapshotValidator.validate(rows);
+    FinanceSnapshotValidator.validate(rows);
 
     if (rows['sale_drafts']!.length > 1) throw const FormatException('草稿数量无效');
     for (final draft in rows['sale_drafts']!) {
