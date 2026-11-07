@@ -146,7 +146,7 @@ void main() {
     await tester.ensureVisible(submit);
     await tester.tap(submit);
     await tester.pumpAndSettle();
-    expect(find.textContaining('确认关账'), findsOneWidget);
+    expect(find.text('确认关账 ${fake.today}？'), findsOneWidget);
     await tester.tap(find.text('确认日结'));
     await tester.pumpAndSettle();
     expect(fake.closed, isNotNull);
