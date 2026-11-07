@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../application/procurement_store.dart';
 import '../application/inventory_store.dart';
+import '../domain/inventory.dart';
 import 'inventory_pages.dart';
 import '../application/sales_store.dart';
 import '../domain/money.dart';
