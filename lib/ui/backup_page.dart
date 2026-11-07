@@ -130,6 +130,8 @@ class _BackupPageState extends State<BackupPage> {
           content: Text('备份日期：${snapshot.createdAt}\n'
               '客户：${summary['customers']}，产品：${summary['products']}，'
               '供应商：${summary['suppliers']}，采购单：${summary['purchase_orders']}，'
+              '仓库：${summary['warehouses']}，收货单：${summary['purchase_receipts']}，'
+              '库存流水：${summary['stock_movements']}，'
               '销售：${summary['sales']}，收款：${summary['payments']}。\n\n'
               '只允许恢复到没有任何业务数据的全新数据库。'
               '如果本机已有客户、订单或草稿，将拒绝恢复，不会合并或覆盖。'),
