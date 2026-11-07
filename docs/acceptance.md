@@ -92,3 +92,8 @@ flutter build apk --debug
 | Android SQLite 持久化 | `storage_device_test.dart` | 临时独立库写入→关账→关闭重开，不碰正式经营数据 | **未执行** |
 
 **本批仅在 GitHub Actions 的最终 SHA 上全部通过 Flutter tests、flutter analyze 和 Debug APK 后才合并开发 main。** Android 真机及真实外部支付流水核对尚未取得验收记录，不允许宣称正式运营可用。
+
+### 导出与历史核对补充
+
+- `finance_csv_test.dart` 验证：每个渠道各一行、合计一行，原销售收款及其他收支来源只在合计处展示，避免重复相加；UTF-8 BOM/CRLF、安全处理 Excel 公式类文本，快照失配不得导出。
+- `DayCloseHistoryPage` 展示已关账日期，点开历史会重算对照保存的快照；分享 CSV 需要 Android 真机验证原生分享和文件落地。**打开分享面板不等于文件已经保存到设备外。**
