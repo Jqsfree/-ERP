@@ -137,7 +137,7 @@ void main() {
         lengthMilli: 1000)]), throwsStateError);
   });
 
-  test('v3 旧库升级 v4 保留采购、客户、产品且不伪造库存', () async {
+  test('v3 旧库升级 v5 保留采购、客户、产品且不伪造库存', () async {
     final (po, _, _) = await seed();
     await db.addCustomer(const Customer(name: 'v3 客户'));
     await db.close();
@@ -151,7 +151,7 @@ void main() {
     final upgraded = AppDatabase.forTesting(factory: databaseFactoryFfi,
       databasePath: path);
     try {
-      expect(await (await upgraded.db).getVersion(), 4);
+      expect(await (await upgraded.db).getVersion(), AppDatabase.schemaVersion);
       expect((await upgraded.purchaseOrderById(po))!.lines, hasLength(1));
       expect((await upgraded.customers()).single.name, 'v3 客户');
       expect(await upgraded.warehouses(), isEmpty);
@@ -189,7 +189,7 @@ void main() {
     expect(() => BackupSnapshot.parse(jsonEncode(corrupt)), throwsFormatException);
   });
 
-  test('历史 v3 备份恢复到 v4，新增库存表保持为空', () async {
+  test('历史 v3 备份恢复到 v5，新增库存表保持为空', () async {
     final (po, _, _) = await seed();
     final content = jsonDecode(await db.exportSnapshotJson()) as Map<String, dynamic>;
     content['schemaVersion'] = 3;
@@ -198,6 +198,8 @@ void main() {
         'purchase_receipts', 'warehouses']) {
       tables.remove(name);
     }
+    for (final name in ['sale_dispatches', 'sale_dispatch_lines',
+        'sale_returns', 'sale_return_lines']) { tables.remove(name); }
     final archive = jsonEncode(content);
     expect(BackupSnapshot.parse(archive).counts['warehouses'], 0);
     final restore = AppDatabase.forTesting(factory: databaseFactoryFfi,
