@@ -78,7 +78,7 @@ class _InventoryPageState extends State<InventoryPage> {
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
         final (warehouses, balances, movements) = snapshot.data!;
         return ListView(padding: const EdgeInsets.all(16), children: [
-          const Text('库存仅由已确认采购收货流水推导；销售出库、退货和库存估值尚未启用。',
+          const Text('库存由采购收货（+）、销售出库（−）、实物退货（+）流水汇总；不含库存估值或财务退款。',
             style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 18),
           Text('仓库（${warehouses.length}）', style: Theme.of(context).textTheme.titleMedium),
@@ -101,7 +101,7 @@ class _InventoryPageState extends State<InventoryPage> {
               title: Text('${movement.receiptNumber} · ${movement.productCode}'),
               subtitle: Text('${movement.warehouseCode} · '
                 '${movement.batchCode.isEmpty ? '无批次' : movement.batchCode}'),
-              trailing: Text('+${areaText(movement.deltaAreaMicro)} ㎡')),
+              trailing: Text('${movement.deltaAreaMicro > 0 ? '+' : ''}${areaText(movement.deltaAreaMicro)} ㎡')),
           const SizedBox(height: 96),
         ]);
       },
