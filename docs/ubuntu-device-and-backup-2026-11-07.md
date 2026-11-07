@@ -1,23 +1,21 @@
 # Ubuntu + Android 真机开发及加密数据备份（2026-11-07）
 
-> 分支 `feat/ubuntu-device-foundation-20261107` 在
-> `feat/storage-io-audit-20261106` 基础上继续工作。
+> 本文最初创建于历史 Ubuntu 开发分支；既有 PR #1–#6 已合并 `main`。下一阶段以 [销售开单 MVP 验收契约](mvp-release-gate-2026-11-07.md) 为唯一发布门禁。
 > 代码提交、GitHub Actions 构建、真机验收是不同状态。
 > **不允许在设备验收之前用作正式经营唯一账本。**
 
 ## 1. 分支依赖
 
 ```text
-main（当前旧版）
-    └─ feat/storage-io-audit-20261106（PR #1，基础审计）
-          └─ feat/ubuntu-device-foundation-20261107（本轮改动，堆叠 PR）
+main（已合并 PR #1–#6、SQLite v6；MVP 验证基线）
 ```
 
 在 Ubuntu 的克隆仓库中：
 
 ```bash
 git fetch origin --prune
-git switch --track origin/feat/ubuntu-device-foundation-20261107
+git switch main
+git pull --ff-only origin main
 git rev-parse --short HEAD
 git status --short
 
