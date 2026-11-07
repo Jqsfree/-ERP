@@ -130,11 +130,14 @@ class FinanceMath {
         case 'income':
           if (direction != 1) throw const FormatException('其他收入方向不合法');
           income += amount;
+          break;
         case 'expense':
           if (direction != -1) throw const FormatException('费用支出方向不合法');
           expense += amount;
+          break;
         case 'reversal':
           reversals += signed;
+          break;
         default:
           throw const FormatException('未知收支类型');
       }
