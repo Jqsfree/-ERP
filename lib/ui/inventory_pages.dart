@@ -52,8 +52,10 @@ class _InventoryPageState extends State<InventoryPage> {
             await widget.store.addWarehouse(code: code, name: name);
             if (ctx.mounted) Navigator.pop(ctx, true);
           } catch (e) {
-            if (ctx.mounted) ScaffoldMessenger.of(ctx).showSnackBar(
-              SnackBar(content: Text('仓库保存失败：$e')));
+            if (ctx.mounted) {
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                SnackBar(content: Text('仓库保存失败：$e')));
+            }
           }
         }, child: const Text('保存')),
       ],
@@ -173,8 +175,10 @@ class _PurchaseReceivePageState extends State<PurchaseReceivePage> {
         requestKey: _requestKey, lines: lines, note: _note.text);
       if (mounted) Navigator.pop(context, id);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('收货未完成：$e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('收货未完成：$e')));
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
