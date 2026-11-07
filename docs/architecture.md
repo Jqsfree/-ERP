@@ -9,7 +9,7 @@ main.dart
   └─ DatabaseScope（UI 可注入测试用 AppDatabase）
        └─ UI/pages.dart（输入、草稿和视图交互）
             ├─ Domain: models.dart / money.dart
-            ├─ Data: AppDatabase（SQLite schema v5, transaction, migration）
+            ├─ Data: AppDatabase（SQLite schema v6, transaction, migration）
             ├─ Output: SalesCsvExporter（纯数据转换，订单与明细分表）
             └─ Output: InvoicePdf（Flutter canvas / Android printing）
 ```
@@ -40,6 +40,7 @@ Schema 版本：
 - v3：供应商、采购订单和采购明细，订单不直接影响库存及应付。
 - v4：仓库、采购收货、收货明细与库存流水；按采购行部分收货，事务/请求标识防重复。
 - v5：新增销售出库及销售实物退货四表；不更改原有入库事件，统一视图按正负库存运动推导余额。
+- v6：`cash_entries` 记录其他资金收支/冲销；`day_closures` 保存渠道账面与人工核对金额的日结快照；不重写销售原始收款。
 - 迁移通过 `onUpgrade`，不允许破坏性删除旧表。每次升级需新增从真实前版数据库迁移的自动化测试。
 
 ## 3. 金额不变量
@@ -116,3 +117,12 @@ PhysicalReturn (引用原出库) --> 正向入库流水\nCreditNote / Refund (�
 - 原出库行和实物退货一一可追溯；累计实物退回不大于出库米数，且只能回原仓和批次。资金冲销独立于实物退货，**绝不自动重写销售应收或已收款**。
 - 快照 v5 引入四表并校验原销售/原出库关系、面积、数量上限、库存非负、请求键和内容一致性；原 v2/v3/v4 快照恢复时，v5 表按空表创建。
 - Android 软键盘、脱机中断、真实分享、打印仍待用户设备验收；源码可编译或 GitHub CI 成功不等于发布就绪。
+
+## 9. 资金流水及日结（schema v6）
+
+- **FinanceStore 接口 + FinanceRepository 事务**：SQLite 保留唯一资金真相；其他收入/费用与 `payments` 不是同一事件。日结在同一事务计算五种基础渠道（兼容旧版自定义方式）净变动并插入快照；没有单独缓存资金余额。
+- 其他资金事件仅限已发生的独立收入和费用，原始凭证不可修改或删除；冲销引用原凭证，方向取反，可在次日追加而不回写历史已结日期。
+- 关账后日内记录不可添加。 `createSale(initialReceivedCents>0)` 和 `addPayment` 仍由原 `AppDatabase` 负责，事务中查 `day_closures`，拒绝闭账日收款。关账后读日报对比归档快照和实时业务数据，不一致时显式失败。
+- **对账含义**：`expectedNetByMethod` 是当天资金入账与支出的渠道净变化，不是现金/银行期末余额；`actualNetByMethod` 需要外部盘点或平台账单核对输入。差额可保留但必须标注原因，不允许“以账面金额冒充外部核对”。
+- `FinanceSnapshotValidator` 会检查原始事件内容、方向、冲销引用、一对一关系、日结快照净金额以及未说明差异，拒绝伪造备份。
+- 仍需建设真正的收款/付款匹配、财务退款、资产负债及现金账户期初余额和审批审计，不能称已完成财务总账。
