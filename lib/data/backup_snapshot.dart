@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../domain/money.dart';
+import 'fulfillment_snapshot_validator.dart';
 
 /// Logical SQLite snapshot contract. Its column allowlist intentionally fails
 /// closed on future schema changes until backup migrations are implemented.
@@ -9,7 +10,7 @@ class BackupSnapshot {
 
   static const format = 'kaibao.sqlite.snapshot';
   static const version = 1;
-  static const schemaVersion = 4;
+  static const schemaVersion = 5;
   static const maxJsonLength = 32 * 1024 * 1024;
   static const maxRowsPerTable = 50000;
 
@@ -51,6 +52,20 @@ class BackupSnapshot {
       'id', 'receipt_line_id', 'product_id', 'warehouse_id',
       'batch_code', 'delta_area_micro', 'created_at',
     ],
+    'sale_dispatches': [
+      'id', 'number', 'sale_id', 'request_key', 'payload', 'created_at', 'note',
+    ],
+    'sale_dispatch_lines': [
+      'id', 'dispatch_id', 'sale_line_id', 'product_id', 'warehouse_id',
+      'batch_code', 'length_milli', 'width_milli', 'area_micro',
+    ],
+    'sale_returns': [
+      'id', 'number', 'dispatch_id', 'request_key', 'payload', 'created_at', 'note',
+    ],
+    'sale_return_lines': [
+      'id', 'return_id', 'dispatch_line_id', 'product_id', 'warehouse_id',
+      'batch_code', 'length_milli', 'width_milli', 'area_micro',
+    ],
   };
 
   final String createdAt;
@@ -80,7 +95,7 @@ class BackupSnapshot {
     final decoded = jsonDecode(input);
     if (decoded is! Map<String, dynamic> ||
         decoded['format'] != format || decoded['version'] != version ||
-        (decoded['schemaVersion'] != schemaVersion &&
+        (decoded['schemaVersion'] != schemaVersion && decoded['schemaVersion'] != 4 &&
           decoded['schemaVersion'] != 3 && decoded['schemaVersion'] != 2) ||
         decoded['createdAt'] is! String) {
       throw const FormatException('备份格式或数据库版本不兼容');
@@ -110,6 +125,16 @@ class BackupSnapshot {
                            'purchase_receipt_lines', 'stock_movements']) {
         if (tables.containsKey(table)) {
           throw FormatException('旧版备份不应包含 v4 库存表：$table');
+        }
+        tables[table] = <Map<String, Object?>>[];
+      }
+    }
+    if (decoded['schemaVersion'] == 2 ||
+        decoded['schemaVersion'] == 3 || decoded['schemaVersion'] == 4) {
+      for (final table in ['sale_dispatches', 'sale_dispatch_lines',
+                           'sale_returns', 'sale_return_lines']) {
+        if (tables.containsKey(table)) {
+          throw FormatException('旧版备份不能包含 v5 出库/退货表：$table');
         }
         tables[table] = <Map<String, Object?>>[];
       }
@@ -404,6 +429,8 @@ class BackupSnapshot {
         throw const FormatException('收货单没有明细');
       }
     }
+
+    FulfillmentSnapshotValidator.validate(rows);
 
     if (rows['sale_drafts']!.length > 1) throw const FormatException('草稿数量无效');
     for (final draft in rows['sale_drafts']!) {
