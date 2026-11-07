@@ -1,6 +1,6 @@
 # 凯堡软装 ERP：技术架构与数据契约（2026-11-06）
 
-状态：**Android 离线开单原型，尚未达到完整 ERP 的数据安全与业务验收。**
+状态：**离线采购/销售开发中的 ERP 原型，尚未达到完整 ERP 的数据安全与业务验收。**
 
 ## 1. 当前已经落地的代码层次
 
@@ -9,7 +9,7 @@ main.dart
   └─ DatabaseScope（UI 可注入测试用 AppDatabase）
        └─ UI/pages.dart（输入、草稿和视图交互）
             ├─ Domain: models.dart / money.dart
-            ├─ Data: AppDatabase（SQLite schema v2, transaction, migration）
+            ├─ Data: AppDatabase（SQLite schema v4, transaction, migration）
             ├─ Output: SalesCsvExporter（纯数据转换，订单与明细分表）
             └─ Output: InvoicePdf（Flutter canvas / Android printing）
 ```
@@ -37,6 +37,8 @@ main.dart
 Schema 版本：
 - v1：客户、产品、销售、销售明细、收款。
 - v2：增加 `sale_drafts`；保留 v1 业务数据。
+- v3：供应商、采购订单和采购明细，订单不直接影响库存及应付。
+- v4：仓库、采购收货、收货明细与库存流水；按采购行部分收货，事务/请求标识防重复。
 - 迁移通过 `onUpgrade`，不允许破坏性删除旧表。每次升级需新增从真实前版数据库迁移的自动化测试。
 
 ## 3. 金额不变量
@@ -77,7 +79,7 @@ Payment (独立事件) ----> Receivables
 Return (引用原出库) ---> Reverse stock movement + Refund/Credit
 ```
 
-**阻断项**：未定义产品计量单位转换、出库单、仓库、退款/冲销、幂等请求键、审计日志和离机备份恢复前，不得将软件称为已完成的进销存/财务 ERP。
+**阻断项**：当前只支持米数×门幅折合面积计价/入库，没有卷/匹/套换算、销售出库、退款/冲销、完整会计/审计日志；只有手动加密备份，未通过真机恢复演练。不能称作已完成 ERP。
 
 ## 6. 质量门禁
 
@@ -90,3 +92,16 @@ Return (引用原出库) ---> Reverse stock movement + Refund/Credit
 - 正式部署门禁：**可校验、可恢复的离机数据备份**、签名发布、迁移演练。
 
 详见 [工程审计报告](engineering-audit-2026-11-06.md) 和 [验收矩阵](acceptance.md)。
+
+## 7. 收货及库存流水（schema v4）
+
+`PurchaseOrders` 属商业承诺；`PurchaseReceipts` 记录实物到货；`StockMovements` 只写由收货事件生成的正向库存流水，供应商应付等待独立发票流程。
+
+- 收货对齐 **purchase_lines.id** 而非 product_id：同一产品多个采购行可以有不同门幅/单价。
+- 原始单位米数/门幅为整数千分之一米；库存单位 `area_micro = length_milli × width_milli`，避免浮点误差。
+- 不缓存库存权威余额；查询时按 `product_id + warehouse_id + batch_code` 汇总流水。
+- 数据库事务内校验采购单状态、仓库状态、采购行所属与已收数量；`request_key` 加规范化 payload 做幂等；一条收货行严格一条库存流水。
+- 已有收货的采购单不能直接取消；没有退货业务前，不提供可任意删除流水的 UI。
+- v4 备份包含新增四表和一致性校验，支持旧 v2/v3 备份恢复到新空库。
+
+详见 [两模块实施计划](erp-module-roadmap-2026-11-07.md)。
