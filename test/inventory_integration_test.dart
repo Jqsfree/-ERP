@@ -142,6 +142,11 @@ void main() {
     await db.addCustomer(const Customer(name: 'v3 客户'));
     await db.close();
     final old = await databaseFactoryFfi.openDatabase(path);
+    await old.execute('DROP VIEW stock_ledger_entries');
+    for (final name in ['sale_return_lines', 'sale_returns',
+        'sale_dispatch_lines', 'sale_dispatches']) {
+      await old.execute('DROP TABLE $name');
+    }
     for (final name in ['stock_movements', 'purchase_receipt_lines',
         'purchase_receipts', 'warehouses']) {
       await old.execute('DROP TABLE $name');
