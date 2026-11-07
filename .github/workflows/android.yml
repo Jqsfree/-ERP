@@ -32,6 +32,8 @@ jobs:
         run: |
           flutter pub get --enforce-lockfile
           git diff --exit-code -- pubspec.lock
+      - name: Finance integration regression tests
+        run: flutter test test/finance_integration_test.dart --reporter expanded
       - name: Dart tests
         run: flutter test --reporter expanded --coverage
       - name: Upload test coverage
