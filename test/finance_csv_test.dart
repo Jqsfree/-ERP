@@ -38,11 +38,11 @@ void main() {
       expectedNetByMethod: report.expectedNetByMethod,
       actualNetByMethod: {...report.expectedNetByMethod,
         '=SUM(1,1)': 90},
-      varianceReason: '=危险\n\"文本\"',
+      varianceReason: '=危险\n"文本"',
       createdAt: '2026-11-07T20:00:00');
     final csv = FinanceCsvExporter.generate(report, close);
     expect(csv, contains('"\t=SUM(1,1)"'));
-    expect(csv, contains('"\t=危险 \"\"文本\"\""'));
+    expect(csv, contains('"\t=危险 ""文本"""'));
     expect(csv, contains('"-0.10"'));
     final bad = DayStatement(day: '2026-11-07',
       salesReceiptsCents: 101, otherIncomeCents: 0,
