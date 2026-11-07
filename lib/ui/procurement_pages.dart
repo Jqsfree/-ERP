@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../application/procurement_store.dart';
+import '../application/inventory_store.dart';
+import '../domain/inventory.dart';
+import 'inventory_pages.dart';
 import '../application/sales_store.dart';
 import '../domain/money.dart';
 import '../domain/models.dart';
@@ -342,9 +345,11 @@ class _PurchaseEditorPageState extends State<PurchaseEditorPage> {
 }
 
 class PurchaseOrdersPage extends StatefulWidget {
-  const PurchaseOrdersPage({super.key, required this.store, required this.catalog});
+  const PurchaseOrdersPage({super.key, required this.store, required this.catalog,
+    this.inventory});
   final ProcurementStore store;
   final SalesStore catalog;
+  final InventoryStore? inventory;
 
   @override
   State<PurchaseOrdersPage> createState() => _PurchaseOrdersPageState();
@@ -367,7 +372,8 @@ class _PurchaseOrdersPageState extends State<PurchaseOrdersPage> {
     final order = await widget.store.purchaseOrderById(id);
     if (order != null && mounted) {
       await Navigator.push<void>(context, MaterialPageRoute(
-        builder: (_) => PurchaseDetailPage(store: widget.store, order: order)));
+        builder: (_) => PurchaseDetailPage(store: widget.store, order: order,
+          inventory: widget.inventory)));
       if (mounted) _reload();
     }
   }
@@ -398,7 +404,7 @@ class _PurchaseOrdersPageState extends State<PurchaseOrdersPage> {
               onTap: () async {
                 await Navigator.push<void>(context, MaterialPageRoute(
                   builder: (_) => PurchaseDetailPage(
-                    store: widget.store, order: order)));
+                    store: widget.store, order: order, inventory: widget.inventory)));
                 if (mounted) _reload();
               },
             );
@@ -410,9 +416,11 @@ class _PurchaseOrdersPageState extends State<PurchaseOrdersPage> {
 }
 
 class PurchaseDetailPage extends StatefulWidget {
-  const PurchaseDetailPage({super.key, required this.store, required this.order});
+  const PurchaseDetailPage({super.key, required this.store, required this.order,
+    this.inventory});
   final ProcurementStore store;
   final PurchaseOrder order;
+  final InventoryStore? inventory;
 
   @override
   State<PurchaseDetailPage> createState() => _PurchaseDetailPageState();
@@ -421,13 +429,35 @@ class PurchaseDetailPage extends StatefulWidget {
 class _PurchaseDetailPageState extends State<PurchaseDetailPage> {
   late PurchaseOrder _order = widget.order;
   bool _busy = false;
+  late Future<List<ReceiptLineProgress>> _receiptProgress = _loadProgress();
+
+  Future<List<ReceiptLineProgress>> _loadProgress() async =>
+    widget.inventory == null ? [] : widget.inventory!.receivableLines(_order.id);
+
+  void _reloadProgress() {
+    final next = _loadProgress();
+    setState(() => _receiptProgress = next);
+  }
+
+  Future<void> _receive() async {
+    final inventory = widget.inventory;
+    if (inventory == null || !_order.isActive || _busy) return;
+    final id = await Navigator.push<int>(context, MaterialPageRoute(
+      builder: (_) => PurchaseReceivePage(
+        store: inventory, purchaseOrderId: _order.id)));
+    if (id != null && mounted) {
+      _reloadProgress();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('收货与库存流水已同时保存')));
+    }
+  }
 
   Future<void> _cancel() async {
     if (_busy || !_order.isActive) return;
     final confirmed = await showDialog<bool>(context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('取消采购订单'),
-        content: const Text('此操作保留历史采购单，不删除已保存明细；当前阶段没有收货或付款流水。'),
+        content: const Text('此操作只取消未收货的采购承诺；已有收货时数据库将拒绝取消，历史明细保留。'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false),
             child: const Text('返回')),
@@ -468,6 +498,27 @@ class _PurchaseDetailPageState extends State<PurchaseDetailPage> {
           trailing: Text('¥${Fixed.format(line.amountCents, decimals: 2)}'),
         ),
       const Divider(),
+      if (widget.inventory != null) ...[
+        FutureBuilder<List<ReceiptLineProgress>>(
+          future: _receiptProgress,
+          builder: (context, snap) {
+            if (snap.hasError) return Text('收货状态读取失败：${snap.error}');
+            if (!snap.hasData) return const LinearProgressIndicator();
+            return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('累计采购收货', style: Theme.of(context).textTheme.titleMedium),
+              for (final progress in snap.data!)
+                ListTile(title: Text(progress.code),
+                  subtitle: Text('已收 ${Fixed.format(progress.receivedLengthMilli,
+                    decimals: 3, trim: true)} / '
+                    '${Fixed.format(progress.orderedLengthMilli, decimals: 3, trim: true)} 米')),
+            ]);
+          },
+        ),
+        if (_order.isActive)
+          FilledButton.icon(onPressed: _busy ? null : _receive,
+            icon: const Icon(Icons.move_to_inbox), label: const Text('登记本单收货')),
+      ],
+      const Divider(),
       Text('采购总金额：¥${Fixed.format(_order.totalCents, decimals: 2)}',
         style: Theme.of(context).textTheme.titleMedium),
       const SizedBox(height: 12),
@@ -478,7 +529,7 @@ class _PurchaseDetailPageState extends State<PurchaseDetailPage> {
           label: const Text('取消采购订单'),
         ),
       const SizedBox(height: 12),
-      const Text('本单是采购承诺，不代表已经收货、入库、形成供应商应付账款。',
+      const Text('采购订单不直接入库；独立收货后才形成库存流水，但仍不形成供应商应付账款。',
         style: TextStyle(color: Colors.grey)),
     ]),
   );

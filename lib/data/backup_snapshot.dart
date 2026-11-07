@@ -9,7 +9,7 @@ class BackupSnapshot {
 
   static const format = 'kaibao.sqlite.snapshot';
   static const version = 1;
-  static const schemaVersion = 3;
+  static const schemaVersion = 4;
   static const maxJsonLength = 32 * 1024 * 1024;
   static const maxRowsPerTable = 50000;
 
@@ -37,6 +37,19 @@ class BackupSnapshot {
       'id', 'purchase_order_id', 'product_id', 'code_snapshot',
       'spec_snapshot', 'length_milli', 'width_milli', 'unit_cost_cents',
       'amount_cents', 'note',
+    ],
+    'warehouses': ['id', 'code', 'name', 'active'],
+    'purchase_receipts': [
+      'id', 'number', 'purchase_order_id', 'request_key',
+      'payload', 'created_at', 'note',
+    ],
+    'purchase_receipt_lines': [
+      'id', 'receipt_id', 'purchase_line_id', 'warehouse_id',
+      'batch_code', 'length_milli', 'width_milli', 'area_micro',
+    ],
+    'stock_movements': [
+      'id', 'receipt_line_id', 'product_id', 'warehouse_id',
+      'batch_code', 'delta_area_micro', 'created_at',
     ],
   };
 
@@ -67,7 +80,8 @@ class BackupSnapshot {
     final decoded = jsonDecode(input);
     if (decoded is! Map<String, dynamic> ||
         decoded['format'] != format || decoded['version'] != version ||
-        (decoded['schemaVersion'] != schemaVersion && decoded['schemaVersion'] != 2) ||
+        (decoded['schemaVersion'] != schemaVersion &&
+          decoded['schemaVersion'] != 3 && decoded['schemaVersion'] != 2) ||
         decoded['createdAt'] is! String) {
       throw const FormatException('备份格式或数据库版本不兼容');
     }
@@ -87,6 +101,18 @@ class BackupSnapshot {
       tables['suppliers'] = <Map<String, Object?>>[];
       tables['purchase_orders'] = <Map<String, Object?>>[];
       tables['purchase_lines'] = <Map<String, Object?>>[];
+    }
+    // Older v2/v3 snapshots never contained an inventory ledger.
+    // Restoring them into a v4 database preserves their original rows
+    // while initializing four new inventory tables with zero entries.
+    if (decoded['schemaVersion'] == 2 || decoded['schemaVersion'] == 3) {
+      for (final table in ['warehouses', 'purchase_receipts',
+                           'purchase_receipt_lines', 'stock_movements']) {
+        if (tables.containsKey(table)) {
+          throw FormatException('旧版备份不应包含 v4 库存表：$table');
+        }
+        tables[table] = <Map<String, Object?>>[];
+      }
     }
     if (
         tables.keys.toSet().difference(columns.keys.toSet()).isNotEmpty ||
@@ -283,6 +309,99 @@ class BackupSnapshot {
       if (poLineCount[po.key] == null ||
           poSums[po.key] != po.value['total_cents']) {
         throw const FormatException('采购订单明细小计不一致');
+      }
+    }
+
+    // Inventory is an immutable event ledger. Reject orphaned, modified or
+    // double-posted receipts before a single byte is restored.
+    final warehouseIds = <int>{};
+    final warehouseCodes = <String>{};
+    for (final row in rows['warehouses']!) {
+      final id = positiveId(row['id'], '仓库 ID');
+      requireText(row['code'], '仓库编码');
+      requireText(row['name'], '仓库名称');
+      if (!warehouseIds.add(id) ||
+          !warehouseCodes.add(row['code'] as String) ||
+          (row['code'] as String).trim().isEmpty ||
+          (row['name'] as String).trim().isEmpty ||
+          (row['active'] != 0 && row['active'] != 1)) {
+        throw const FormatException('仓库数据重复或无效');
+      }
+    }
+    final receiptIds = <int, int>{};
+    final receiptNumbers = <String>{};
+    final requestKeys = <String>{};
+    for (final row in rows['purchase_receipts']!) {
+      final id = positiveId(row['id'], '收货单 ID');
+      final poId = positiveId(row['purchase_order_id'], '采购单 ID');
+      for (final field in ['number', 'request_key', 'payload', 'created_at', 'note']) {
+        requireText(row[field], '收货单.$field');
+      }
+      if (receiptIds.containsKey(id) || !poMap.containsKey(poId) ||
+          poMap[poId]!['status'] != 'ordered' ||
+          !receiptNumbers.add(row['number'] as String) ||
+          !requestKeys.add(row['request_key'] as String)) {
+        throw const FormatException('收货单引用、编号或请求标识不合法');
+      }
+      receiptIds[id] = poId;
+    }
+    final receiptLines = <int, Map<String, Object?>>{};
+    final usedReceiptPoLine = <String>{};
+    final receivedLengths = <int, int>{};
+    for (final row in rows['purchase_receipt_lines']!) {
+      final id = positiveId(row['id'], '收货明细 ID');
+      final receiptId = positiveId(row['receipt_id'], '收货单 ID');
+      final poLineId = positiveId(row['purchase_line_id'], '采购明细 ID');
+      final whId = positiveId(row['warehouse_id'], '仓库 ID');
+      requireText(row['batch_code'], '批次');
+      final length = positiveId(row['length_milli'], '收货米数');
+      final width = positiveId(row['width_milli'], '收货门幅');
+      final area = positiveId(row['area_micro'], '收货面积');
+      final source = rows['purchase_lines']!.where((pl) => pl['id'] == poLineId).toList();
+      if (receiptLines.containsKey(id) || receiptIds[receiptId] == null ||
+          source.length != 1 || source.single['purchase_order_id'] != receiptIds[receiptId] ||
+          !warehouseIds.contains(whId) ||
+          !usedReceiptPoLine.add('$receiptId:$poLineId') ||
+          source.single['width_milli'] != width || length * width != area) {
+        throw const FormatException('收货明细引用或面积不合法');
+      }
+      receivedLengths[poLineId] = (receivedLengths[poLineId] ?? 0) + length;
+      receiptLines[id] = row;
+    }
+    for (final row in rows['purchase_lines']!) {
+      if ((receivedLengths[row['id']] ?? 0) > (row['length_milli'] as int)) {
+        throw const FormatException('累计收货超过采购数量');
+      }
+    }
+    final movedLines = <int>{};
+    final movementIds = <int>{};
+    for (final row in rows['stock_movements']!) {
+      final id = positiveId(row['id'], '库存流水 ID');
+      final lineId = positiveId(row['receipt_line_id'], '流水来源明细');
+      final productId = positiveId(row['product_id'], '流水产品');
+      final whId = positiveId(row['warehouse_id'], '流水仓库');
+      final delta = positiveId(row['delta_area_micro'], '流水面积');
+      requireText(row['batch_code'], '流水批次');
+      requireText(row['created_at'], '流水时间');
+      final line = receiptLines[lineId];
+      if (!movementIds.add(id) || !movedLines.add(lineId) ||
+          line == null || !warehouseIds.contains(whId) ||
+          line['warehouse_id'] != whId || line['batch_code'] != row['batch_code'] ||
+          line['area_micro'] != delta) {
+        throw const FormatException('库存流水与收货单不一致');
+      }
+      final pl = rows['purchase_lines']!.singleWhere(
+        (pl) => pl['id'] == line['purchase_line_id']);
+      if (pl['product_id'] != productId) {
+        throw const FormatException('库存流水产品与采购行不一致');
+      }
+    }
+    if (movedLines.length != receiptLines.length) {
+      throw const FormatException('存在未入账的收货明细');
+    }
+    for (final id in receiptIds.keys) {
+      if (!receiptLines.values.any((r) => r['receipt_id'] == id)) {
+        throw const FormatException('收货单没有明细');
       }
     }
 

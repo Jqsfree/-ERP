@@ -185,7 +185,7 @@ void main() {
     final upgraded = AppDatabase.forTesting(
       factory: databaseFactoryFfi, databasePath: path);
     try {
-      expect((await upgraded.db).getVersion(), completion(3));
+      expect((await upgraded.db).getVersion(), completion(4));
       expect((await upgraded.customers()).single.name, 'v2 客户');
       expect((await upgraded.products()).single.code, 'v2-ITEM');
       expect(await upgraded.suppliers(), isEmpty);
@@ -205,6 +205,10 @@ void main() {
     tables.remove('suppliers');
     tables.remove('purchase_orders');
     tables.remove('purchase_lines');
+    for (final name in ['warehouses', 'purchase_receipts',
+        'purchase_receipt_lines', 'stock_movements']) {
+      tables.remove(name);
+    }
     final oldBackup = jsonEncode(newBackup);
     final parsed = BackupSnapshot.parse(oldBackup);
     expect(parsed.counts['suppliers'], 0);

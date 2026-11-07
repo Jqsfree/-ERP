@@ -1,4 +1,4 @@
-# 验收矩阵：截至 2026-11-06（整改分支）
+# 验收矩阵：2026-11-07（持续迭代，CI 结果以当前提交为准）
 
 所有状态必须引用实际测试输出：**已编写** / **CI 已通过** / **真机已通过** / **未实施**。CI 在分支不断更新，最新 commit 的最终结论以 [Actions](https://github.com/Jqsfree/-ERP/actions) 为准。
 
@@ -34,7 +34,7 @@ flutter build apk --debug
 2. 开单前后台切换、应用被系统回收、手动保存/自动保存草稿；再进入恢复，确认订单后草稿清除。
 3. 10、100、1000 单的查询、补收款、总欠款及导出精确核账。
 4. 打印不同数量的明细，中文/横向/跨页；分享 PDF 与两份 CSV。
-5. **离机备份及恢复未实现前，不得录入唯一一份真实营业账。**
+5. **加密备份虽已实现自动化测试，但未经过真实设备离机恢复演练前，不得录入唯一一份真实营业账。**
 
 完整设计和阻断条件见 [工程审计](engineering-audit-2026-11-06.md)。
 
@@ -47,3 +47,18 @@ flutter build apk --debug
 - 曾出现 `share_plus` Kotlin Gradle Plugin 的兼容提示，需要在真实构建与插件升级后复查。
 - 原 main 保存的 7 项单测及本地运行记录属于历史版本，不能代替当前分支的 CI。
 
+
+## v4 采购收货 + 库存流水（本批新增门禁）
+
+| 场景 | 预期信号 | 自动化测试 | Android 现场 |
+|---|---|---|---|
+| 仓库新增与库存读取 | 仓库可重新读取，余额初始为 0 | `inventory_widget_test.dart` | 待验 |
+| 采购下单无库存 | 下单后无库存流水 | `inventory_integration_test.dart` | 待验 |
+| 分次收货与分仓/批次 | 30m + 70m = 100m，面积精确累加 | `inventory_integration_test.dart` | 待验 |
+| 并发超收与幂等重试 | 相同键不重复、不同键超量失败 | `inventory_integration_test.dart` | 待验 |
+| 采购取消与收货关联 | 已收货的订单拒绝直接取消 | `inventory_integration_test.dart` | 待验 |
+| v3→v4 | 旧客户/采购订单不丢失，库存为空 | `inventory_integration_test.dart` | 待升级演练 |
+| 加密备份与旧档 | v2/v3兼容、v4流水无孤儿/篡改 | `inventory_integration_test.dart` | 待验 |
+| 安卓物理 SQLite | 测试库收货→关闭→重开保持一致 | `storage_device_test.dart`（需指定设备） | **未执行** |
+
+> 自动化代码编写完成不代表 CI 或真机验证通过。只用测试数据进行设备测试；没有用户的安卓手机不能声称设备验收。

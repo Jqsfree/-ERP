@@ -87,3 +87,11 @@ fvm flutter test integration_test/storage_device_test.dart -d <设备ID>
 - 不把“可以运行”、“CI 全绿”、“真机经过测试”混为一谈。
 
 官方参考：Flutter [Android 集成测试](https://docs.flutter.dev/testing/integration-tests)、[Android Gradle 构建](https://developer.android.com/build)、[SQLite 持久化](https://docs.flutter.dev/cookbook/persistence/sqlite)；加密库 [cryptography](https://pub.dev/packages/cryptography)、原生文件选择器 [file_picker](https://pub.dev/packages/file_picker)。
+
+## 后续 SQLite v4：采购收货与库存流水
+
+本文件最初描述的是 v3 基线。现在 `main` 的下一个两模块批次 `feat/receiving-stock-ledger-20261107` 在保持 v2/v3 向前迁移和备份兼容的前提下新增 v4 仓库、收货及库存流水。
+
+真机用例 `integration_test/storage_device_test.dart` 增加真实 Android SQLite 的收货→关闭→重开→面积与批次校验。该测试代码必须由用户在安卓手机上运行才算设备通过。
+
+详见 [业务两模块计划](erp-module-roadmap-2026-11-07.md)。
