@@ -1,0 +1,8 @@
+android.widget.Button '' 'Back' [12,122][156,266]
+android.view.View '' '找单／保存图片' [332,157][748,232]
+android.widget.Button '' '刷新' [936,122][1080,266]
+android.view.View '' '共 2 单' [190,554][343,626]
+android.widget.Button '' '导出订单与明细 CSV' [379,518][890,662]
+android.view.View '' 'ACCEPTANCE-ONLY-20261108\nXS202611080002  2026-11-08\n当前版本 0\n合同 ¥1176.00\n未收 ¥1176.00\n查看单据与保存图片 ›' [0,662][1080,1157]
+android.view.View '' 'ACCEPTANCE-ONLY-20261108\nXS202611080001  2026-11-08\n当前版本 0\n合同 ¥56.00\n未收 ¥35.00\n查看单据与保存图片 ›' [0,1157][1080,1652]
+android.widget.Button '' '新开单' [714,2136][1032,2242]

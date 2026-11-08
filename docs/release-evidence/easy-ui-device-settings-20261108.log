@@ -1,0 +1,6 @@
+android.view.View '' '设置' [481,157][599,232]
+android.widget.Button '' '数据备份与恢复\n把账单备份到手机外，妥善保留备份密码' [48,326][1032,842]
+android.view.View '' '凯堡软装\n版本 0.1.4\n新单自动存图片；改单和收款后可手动另存。' [48,842][1032,1172]
+android.widget.Button '' '开单\nTab 1 of 3' [0,2112][360,2242]
+android.widget.Button '' '业务\nTab 2 of 3' [360,2112][720,2242]
+android.widget.Button '' '设置\nTab 3 of 3' [720,2112][1080,2242]

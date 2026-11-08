@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import '../application/backup_store.dart';
 import '../data/backup_snapshot.dart';
 import '../services/backup_codec.dart';
+import '../services/bounded_bytes.dart';
 
 /// User-controlled, password-encrypted off-device backup and empty-db restore.
 /// The UI never writes the plaintext snapshot to a file.
@@ -84,10 +85,11 @@ class _BackupPageState extends State<BackupPage> {
   }
 
   Future<void> _export() async {
-    final password = await _askPassword(forExport: true);
-    if (password == null || !mounted) return;
+    if (_busy) return;
     setState(() => _busy = true);
     try {
+      final password = await _askPassword(forExport: true);
+      if (password == null || !mounted) return;
       final plain = await widget.store.exportSnapshotJson();
       final encrypted = await BackupCodec.encrypt(plain, password);
       final temp = await getTemporaryDirectory();
@@ -109,8 +111,9 @@ class _BackupPageState extends State<BackupPage> {
     }
   }
 
-  Future<void> _restore() async {
+  Future<void> _restore({bool verificationOnly = false}) async {
     if (_busy) return;
+    setState(() => _busy = true);
     try {
       final file = await FilePicker.pickFile(
         type: FileType.custom, allowedExtensions: ['kberp']);
@@ -118,24 +121,35 @@ class _BackupPageState extends State<BackupPage> {
       final password = await _askPassword(forExport: false);
       if (password == null || !mounted) return;
       setState(() => _busy = true);
-      final encrypted = await file.readAsBytes();
+      final encrypted = await BoundedBytes.read(file.readAsByteStream,
+        limit: BackupCodec.maxEncryptedBytes, reportedLength: file.lengthSync());
       final clear = await BackupCodec.decrypt(encrypted, password);
       final snapshot = BackupSnapshot.parse(clear);
+      if (verificationOnly) {
+        final verifier = widget.store;
+        if (verifier is! BackupVerificationStore) throw StateError('当前存储不支持隔离恢复验证');
+        final counts = await (verifier as BackupVerificationStore).verifySnapshotJson(clear);
+        await _notify('隔离恢复验证通过：已从所选加密文件恢复到独立数据库，关闭重开并逐表核账。'
+          '\n当前业务数据库未改动。\n客户：${counts['customers']}，销售：${counts['sales']}，收款：${counts['payments']}。'
+          '\n该结果验证文件可恢复，不代替备用设备或全新安装验收。');
+        return;
+      }
       if (!mounted) return;
       final summary = snapshot.counts;
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('恢复前最后确认'),
-          content: Text('备份日期：${snapshot.createdAt}\n'
+          content: SingleChildScrollView(child: Text('备份日期：${snapshot.createdAt}\n'
               '客户：${summary['customers']}，产品：${summary['products']}，'
               '供应商：${summary['suppliers']}，采购单：${summary['purchase_orders']}，'
               '仓库：${summary['warehouses']}，收货单：${summary['purchase_receipts']}，'
               '库存流水：${summary['stock_movements']}，'
               '销售：${summary['sales']}，收款：${summary['payments']}，'
-              '其他收支：${summary['cash_entries']}，日结：${summary['day_closures']}。\n\n'
+              '其他收支：${summary['cash_entries']}，日结：${summary['day_closures']}，'
+              '退款及冲销事件：${summary['sale_refund_events']}，退款请求：${summary['refund_requests']}。\n\n'
               '只允许恢复到没有任何业务数据的全新数据库。'
-              '如果本机已有客户、订单或草稿，将拒绝恢复，不会合并或覆盖。'),
+              '如果本机已有客户、订单或草稿，将拒绝恢复，不会合并或覆盖。')),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false),
               child: const Text('取消')),
@@ -172,14 +186,22 @@ class _BackupPageState extends State<BackupPage> {
       ),
       const SizedBox(height: 12),
       OutlinedButton.icon(
-        onPressed: _busy ? null : _restore,
+        onPressed: _busy ? null : () => _restore(),
         icon: const Icon(Icons.settings_backup_restore),
         label: const Padding(padding: EdgeInsets.all(12),
           child: Text('从加密备份恢复（仅空数据库）')),
       ),
+      if (widget.store is BackupVerificationStore) ...[
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: _busy ? null : () => _restore(verificationOnly: true),
+          icon: const Icon(Icons.verified_outlined),
+          label: const Padding(padding: EdgeInsets.all(12),
+            child: Text('选择备份文件并验证可恢复性'))),
+      ],
       const SizedBox(height: 18),
-      const Text('正式使用前，请先用测试数据演练：导出 → 保存到电脑 → '
-          '在全新安装或独立测试设备恢复 → 核对金额。'
+      const Text('建议定期备份：导出 → 保存到电脑 → '
+          '在全新安装或备用设备恢复 → 核对金额。'
           '目前不提供对现有数据的覆盖恢复，也不提供多设备合并。',
           style: TextStyle(color: Colors.grey)),
       if (_busy) ...[

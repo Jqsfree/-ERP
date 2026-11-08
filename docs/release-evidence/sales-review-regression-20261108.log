@@ -1,0 +1,227 @@
+Resolving dependencies...
+Downloading packages...
+  code_assets 1.2.1 (2.2.0 available)
+  cross_file 0.3.5+5 (0.4.0 available)
+  flutter_lints 5.0.0 (6.0.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  lints 5.1.1 (6.1.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  native_toolchain_c 0.19.2 (0.19.6 available)
+  objective_c 9.5.0 (9.6.3 available)
+  petitparser 7.0.2 (7.1.0 available)
+  qr 3.0.3 (4.0.1 available)
+  record_use 0.6.0 (1.1.1 available)
+  sqlite3 3.5.2 (3.9.0 available)
+  test_api 0.7.12 (0.7.15 available)
+  vector_math 2.4.0 (2.4.4 available)
+  xml 7.0.1 (7.1.0 available)
+Got dependencies!
+16 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /home/jqs/Workspace/Projects/kaibao-erp/test/release_storage_test.dart
+00:00 +0: /home/jqs/Workspace/Projects/kaibao-erp/test/release_storage_test.dart: (setUpAll)
+00:00 +0: /home/jqs/Workspace/Projects/kaibao-erp/test/release_storage_test.dart: v6→当前版 保留销售、收款及客户欠款并创建余额表
+00:00 +1: /home/jqs/Workspace/Projects/kaibao-erp/test/release_storage_test.dart: 余额流水经加密备份、空库恢复和重启后逐表一致
+00:01 +2: /home/jqs/Workspace/Projects/kaibao-erp/test/release_storage_test.dart: 迁移遇到冲突失败后版本、销售及收款仍保留
+error SqfliteFfiException(sqlite_error: 1, , SqliteException(1): while executing, table customer_credit_entries already exists, SQL logic error (code 1)
+  Causing statement (at position 13): CREATE TABLE customer_credit_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL REFERENCES customers(id),
+      sale_id INTEGER NOT NULL REFERENCES sales(id),
+      request_key TEXT NOT NULL UNIQUE,
+      delta_cents INTEGER NOT NULL CHECK(delta_cents != 0),
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    ), parameters: }) DatabaseException(SqliteException(1): while executing, table customer_credit_entries already exists, SQL logic error (code 1)
+  Causing statement (at position 13): CREATE TABLE customer_credit_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL REFERENCES customers(id),
+      sale_id INTEGER NOT NULL REFERENCES sales(id),
+      request_key TEXT NOT NULL UNIQUE,
+      delta_cents INTEGER NOT NULL CHECK(delta_cents != 0),
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    ), parameters: ) sql 'CREATE TABLE customer_credit_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL REFERENCES customers(id),
+      sale_id INTEGER NOT NULL REFERENCES sales(id),
+      request_key TEXT NOT NULL UNIQUE,
+      delta_cents INTEGER NOT NULL CHECK(delta_cents != 0),
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )' {details: {database: {path: /tmp/kaibao-release-storage-HPSVQD/source.db, id: 7, readOnly: false, singleInstance: true}}} during open, closing...
+00:01 +3: /home/jqs/Workspace/Projects/kaibao-erp/test/release_storage_test.dart: (tearDownAll)
+00:03 +3: /home/jqs/Workspace/Projects/kaibao-erp/test/sales_lookup_ui_test.dart: 360dp/200%：查单换行、电话搜索、未匹配提示和清空
+00:03 +4: /home/jqs/Workspace/Projects/kaibao-erp/test/sales_lookup_ui_test.dart: 360dp/200%：查单换行、电话搜索、未匹配提示和清空
+00:03 +5: /home/jqs/Workspace/Projects/kaibao-erp/test/sales_lookup_ui_test.dart: 360dp/200%：查单换行、电话搜索、未匹配提示和清空
+00:03 +6: /home/jqs/Workspace/Projects/kaibao-erp/test/sales_lookup_ui_test.dart: 360dp/200%：查单换行、电话搜索、未匹配提示和清空
+00:03 +7: /home/jqs/Workspace/Projects/kaibao-erp/test/sales_lookup_ui_test.dart: 360dp/200%：查单换行、电话搜索、未匹配提示和清空
+00:03 +8: /home/jqs/Workspace/Projects/kaibao-erp/test/sales_lookup_ui_test.dart: 360dp/200%：查单换行、电话搜索、未匹配提示和清空
+00:04 +9: /home/jqs/Workspace/Projects/kaibao-erp/test/sales_lookup_ui_test.dart: 360dp/200%：查单换行、电话搜索、未匹配提示和清空
+00:04 +10: /home/jqs/Workspace/Projects/kaibao-erp/test/sales_lookup_ui_test.dart: 360dp/200%：查单换行、电话搜索、未匹配提示和清空
+00:04 +11: /home/jqs/Workspace/Projects/kaibao-erp/test/sales_lookup_ui_test.dart: 360dp/200%：查单换行、电话搜索、未匹配提示和清空
+00:04 +12: /home/jqs/Workspace/Projects/kaibao-erp/test/sales_lookup_ui_test.dart: 360dp/200%：查单换行、电话搜索、未匹配提示和清空
+00:04 +13: /home/jqs/Workspace/Projects/kaibao-erp/test/sales_lookup_ui_test.dart: 360dp/200%：查单换行、电话搜索、未匹配提示和清空
+00:04 +14: /home/jqs/Workspace/Projects/kaibao-erp/test/sales_lookup_ui_test.dart: 360dp/200%：查单换行、电话搜索、未匹配提示和清空
+00:04 +15: /home/jqs/Workspace/Projects/kaibao-erp/test/sales_lookup_ui_test.dart: 360dp/200%：查单换行、电话搜索、未匹配提示和清空
+00:04 +16: /home/jqs/Workspace/Projects/kaibao-erp/test/finance_widget_test.dart: 费用收支：输入分类及金额→应用端口→完整本地流水
+00:04 +17: /home/jqs/Workspace/Projects/kaibao-erp/test/finance_widget_test.dart: 费用收支：输入分类及金额→应用端口→完整本地流水
+00:04 +17: /home/jqs/Workspace/Projects/kaibao-erp/test/customer_credit_migration_test.dart: v8→v9 迁移失败不破坏原数据和版本
+error SqfliteFfiException(sqlite_error: 1, , SqliteException(1): while executing, table sale_creation_requests already exists, SQL logic error (code 1)
+  Causing statement (at position 13): CREATE TABLE sale_creation_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sale_id INTEGER NOT NULL UNIQUE REFERENCES sales(id),
+      request_key TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, created_at TEXT NOT NULL
+    ), parameters: }) DatabaseException(SqliteException(1): while executing, table sale_creation_requests already exists, SQL logic error (code 1)
+  Causing statement (at position 13): CREATE TABLE sale_creation_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sale_id INTEGER NOT NULL UNIQUE REFERENCES sales(id),
+      request_key TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, created_at TEXT NOT NULL
+    ), parameters: ) sql 'CREATE TABLE sale_creation_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sale_id INTEGER NOT NULL UNIQUE REFERENCES sales(id),
+      request_key TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, created_at TEXT NOT NULL
+    )' {details: {database: {path: /tmp/kaibao-credit-migration-UQJAHN/old.db, id: 5, readOnly: false, singleInstance: true}}} during open, closing...
+00:04 +18: /home/jqs/Workspace/Projects/kaibao-erp/test/finance_widget_test.dart: 费用收支：输入分类及金额→应用端口→完整本地流水
+00:04 +19: /home/jqs/Workspace/Projects/kaibao-erp/test/finance_widget_test.dart: 费用收支：输入分类及金额→应用端口→完整本地流水
+00:04 +20: /home/jqs/Workspace/Projects/kaibao-erp/test/finance_widget_test.dart: 费用收支：输入分类及金额→应用端口→完整本地流水
+00:04 +21: /home/jqs/Workspace/Projects/kaibao-erp/test/finance_widget_test.dart: 费用收支：输入分类及金额→应用端口→完整本地流水
+00:04 +22: /home/jqs/Workspace/Projects/kaibao-erp/test/finance_widget_test.dart: 费用收支：输入分类及金额→应用端口→完整本地流水
+00:04 +23: /home/jqs/Workspace/Projects/kaibao-erp/test/finance_widget_test.dart: 费用收支：输入分类及金额→应用端口→完整本地流水
+00:04 +24: /home/jqs/Workspace/Projects/kaibao-erp/test/finance_widget_test.dart: 费用收支：输入分类及金额→应用端口→完整本地流水
+00:04 +25: /home/jqs/Workspace/Projects/kaibao-erp/test/finance_widget_test.dart: 费用收支：输入分类及金额→应用端口→完整本地流水
+00:04 +26: /home/jqs/Workspace/Projects/kaibao-erp/test/finance_widget_test.dart: 费用收支：输入分类及金额→应用端口→完整本地流水
+00:04 +27: /home/jqs/Workspace/Projects/kaibao-erp/test/stock_operation_ui_test.dart: 出库：超量拦截、确认取消不提交、确认仅提交一次
+00:04 +28: /home/jqs/Workspace/Projects/kaibao-erp/test/stock_operation_ui_test.dart: 出库：超量拦截、确认取消不提交、确认仅提交一次
+00:05 +29: /home/jqs/Workspace/Projects/kaibao-erp/test/stock_operation_ui_test.dart: 出库：超量拦截、确认取消不提交、确认仅提交一次
+00:05 +30: /home/jqs/Workspace/Projects/kaibao-erp/test/stock_operation_ui_test.dart: 出库：超量拦截、确认取消不提交、确认仅提交一次
+00:05 +31: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +32: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +33: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +34: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +35: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +36: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +37: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +38: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +39: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +40: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +41: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +42: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +43: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +44: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +45: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +46: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +47: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +48: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +49: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +50: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +51: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +52: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +53: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +54: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +55: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +56: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:05 +57: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +58: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +59: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +60: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +61: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +62: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +63: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +64: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +65: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +66: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +67: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +68: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +69: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +70: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +71: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +72: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +73: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +74: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +75: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +75: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_migration_test.dart: v7→v8 中途失败保留旧库且建表回滚
+error SqfliteFfiException(sqlite_error: 1, , SqliteException(1): while executing, table sale_payment_contexts already exists, SQL logic error (code 1)
+  Causing statement (at position 13): CREATE TABLE sale_payment_contexts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      payment_id INTEGER NOT NULL UNIQUE REFERENCES payments(id),
+      customer_id INTEGER NOT NULL REFERENCES customers(id),
+      customer_epoch INTEGER NOT NULL CHECK(customer_epoch >= 0)
+    ), parameters: }) DatabaseException(SqliteException(1): while executing, table sale_payment_contexts already exists, SQL logic error (code 1)
+  Causing statement (at position 13): CREATE TABLE sale_payment_contexts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      payment_id INTEGER NOT NULL UNIQUE REFERENCES payments(id),
+      customer_id INTEGER NOT NULL REFERENCES customers(id),
+      customer_epoch INTEGER NOT NULL CHECK(customer_epoch >= 0)
+    ), parameters: ) sql 'CREATE TABLE sale_payment_contexts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      payment_id INTEGER NOT NULL UNIQUE REFERENCES payments(id),
+      customer_id INTEGER NOT NULL REFERENCES customers(id),
+      customer_epoch INTEGER NOT NULL CHECK(customer_epoch >= 0)
+    )' {details: {database: {path: /tmp/kaibao-v7-upgrade-TFWLKQ/legacy.db, id: 7, readOnly: false, singleInstance: true}}} during open, closing...
+00:06 +76: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +77: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +78: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +79: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +80: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:06 +81: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +82: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +83: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +84: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +85: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +86: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +87: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +88: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +89: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +90: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +91: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +92: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +93: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +94: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +95: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +96: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +97: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +98: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:07 +99: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:08 +100: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:08 +101: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:08 +102: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:08 +103: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_editor_widget_test.dart: 真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试
+00:08 +104: /home/jqs/Workspace/Projects/kaibao-erp/test/customer_credit_flow_widget_test.dart: 真实DB+UI：待退款转余额→新单现金+抵扣→减量释放→历史/账务核对
+00:08 +105: /home/jqs/Workspace/Projects/kaibao-erp/test/customer_credit_flow_widget_test.dart: 真实DB+UI：待退款转余额→新单现金+抵扣→减量释放→历史/账务核对
+00:08 +106: /home/jqs/Workspace/Projects/kaibao-erp/test/customer_credit_flow_widget_test.dart: 真实DB+UI：待退款转余额→新单现金+抵扣→减量释放→历史/账务核对
+00:09 +107: /home/jqs/Workspace/Projects/kaibao-erp/test/customer_credit_flow_widget_test.dart: 真实DB+UI：待退款转余额→新单现金+抵扣→减量释放→历史/账务核对
+00:09 +108: /home/jqs/Workspace/Projects/kaibao-erp/test/customer_credit_flow_widget_test.dart: 真实DB+UI：待退款转余额→新单现金+抵扣→减量释放→历史/账务核对
+00:09 +109: /home/jqs/Workspace/Projects/kaibao-erp/test/customer_credit_flow_widget_test.dart: 真实DB+UI：待退款转余额→新单现金+抵扣→减量释放→历史/账务核对
+00:09 +110: /home/jqs/Workspace/Projects/kaibao-erp/test/customer_credit_flow_widget_test.dart: 真实DB+UI：待退款转余额→新单现金+抵扣→减量释放→历史/账务核对
+00:09 +111: /home/jqs/Workspace/Projects/kaibao-erp/test/customer_credit_flow_widget_test.dart: 真实DB+UI：待退款转余额→新单现金+抵扣→减量释放→历史/账务核对
+00:10 +112: /home/jqs/Workspace/Projects/kaibao-erp/test/customer_credit_flow_widget_test.dart: 真实DB+UI：待退款转余额→新单现金+抵扣→减量释放→历史/账务核对
+00:10 +113: /home/jqs/Workspace/Projects/kaibao-erp/test/customer_credit_flow_widget_test.dart: 真实DB+UI：待退款转余额→新单现金+抵扣→减量释放→历史/账务核对
+00:10 +113: /home/jqs/Workspace/Projects/kaibao-erp/test/sales_stress_test.dart: 100 sales: numbering, debt and CSV
+100 sales: 193 ms
+00:10 +114: /home/jqs/Workspace/Projects/kaibao-erp/test/customer_credit_flow_widget_test.dart: 真实DB+UI：待退款转余额→新单现金+抵扣→减量释放→历史/账务核对
+00:10 +115: /home/jqs/Workspace/Projects/kaibao-erp/test/customer_credit_flow_widget_test.dart: 真实DB+UI：待退款转余额→新单现金+抵扣→减量释放→历史/账务核对
+00:10 +116: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:10 +117: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:10 +118: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:10 +119: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:10 +120: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:10 +121: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:10 +122: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:10 +123: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:10 +124: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:10 +125: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:10 +126: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:11 +126: /home/jqs/Workspace/Projects/kaibao-erp/test/sales_stress_test.dart: 1000 sales: numbering, debt and CSV
+1000 sales: 1171 ms
+00:11 +127: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:11 +128: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:11 +129: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:11 +130: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:12 +131: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:13 +132: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:14 +133: /home/jqs/Workspace/Projects/kaibao-erp/test/payment_page_test.dart: 真实SQLite收款：校验、确认取消、事务失败保留、重试只入账一次
+00:14 +134: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_widget_test.dart: 真实DB+UI：收款20000/出库10000改单、历史只读及待办展示
+00:15 +135: /home/jqs/Workspace/Projects/kaibao-erp/test/sale_revision_widget_test.dart: (tearDownAll)
+00:15 +135: All tests passed!

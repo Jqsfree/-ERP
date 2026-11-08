@@ -9,3 +9,8 @@ abstract interface class BackupStore {
   /// Fails before any insert if an unsupported schema/invariant is found.
   Future<void> restoreSnapshotJson(String plaintextSnapshot);
 }
+
+/// Optional capability: restores only into a disposable isolated database.
+abstract interface class BackupVerificationStore {
+  Future<Map<String, int>> verifySnapshotJson(String plaintextSnapshot);
+}

@@ -13,6 +13,12 @@ String _area(int micro) => Fixed.format(micro, decimals: 6, trim: true);
 String _requestKey(String prefix) => '$prefix-${DateTime.now().microsecondsSinceEpoch}'
   '-${Random.secure().nextInt(1 << 32)}';
 
+Future<bool> _reviewStock(BuildContext context, String title, String details) async =>
+  await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+    title: Text(title), content: SingleChildScrollView(child: Text(details)),
+    actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('返回修改')),
+      FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确认登记'))])) ?? false;
+
 /// From a saved sale, review dispatch status, post partial deliveries, and
 /// return only physical stock already shipped on the selected dispatch.
 class SaleFulfillmentPage extends StatefulWidget {
@@ -137,6 +143,19 @@ class _DispatchEditorPageState extends State<DispatchEditorPage> {
   final _form = GlobalKey<FormState>();
   final _request = _requestKey('dispatch');
   bool _saving = false;
+  bool _dirty = false;
+  bool _allowExit = false;
+  Future<void> _leave() async {
+    if (_saving) return;
+    final leave = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('放弃本次填写？'), content: const Text('尚未登记，库存不会改变。'),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('继续填写')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('放弃填写'))]));
+    if (leave != true || !mounted) return;
+    setState(() => _allowExit = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) Navigator.pop(context); });
+  }
+
 
   Future<(List<Warehouse>, List<DispatchLineProgress>)> _load() async {
     final warehouses = (await widget.inventory.warehouses()).where((w) => w.active).toList();
@@ -158,7 +177,13 @@ class _DispatchEditorPageState extends State<DispatchEditorPage> {
   }
 
   Future<void> _submit(List<DispatchLineProgress> progress) async {
-    if (_saving || !_form.currentState!.validate()) return;
+    if (_saving) return;
+    final errors = _form.currentState!.validateGranularly();
+    if (errors.isNotEmpty) {
+      await Scrollable.ensureVisible(errors.first.context, alignment: 0.15);
+      return;
+    }
+    FocusScope.of(context).unfocus();
     final lines = <DispatchInputLine>[];
     try {
       for (final p in progress) {
@@ -177,10 +202,15 @@ class _DispatchEditorPageState extends State<DispatchEditorPage> {
       }
       if (lines.isEmpty) throw ArgumentError('至少输入一条实际出库米数');
       setState(() => _saving = true);
+      if (!await _reviewStock(context, '核对销售出库',
+        '销售单 #${widget.saleId}\n${lines.map((l) => '${progress.firstWhere((p) => p.lineId == l.saleLineId).code}：${_meters(l.lengthMilli)}米，仓库 #${l.warehouseId}，批次 ${l.batchCode.isEmpty ? '无' : l.batchCode}').join('\n')}\n确认货品实际发出后登记，将扣减库存，不登记收款。')) { return; }
       final id = await widget.fulfillment.postSaleDispatch(
         saleId: widget.saleId, requestKey: _request,
         lines: lines, note: _note.text);
-      if (mounted) Navigator.pop(context, id);
+      if (mounted) {
+        setState(() => _allowExit = true);
+        WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) Navigator.pop(context, id); });
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -192,7 +222,7 @@ class _DispatchEditorPageState extends State<DispatchEditorPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => PopScope(canPop: _allowExit || (!_saving && !_dirty), onPopInvokedWithResult: (didPop, result) { if (!didPop) _leave(); }, child: Scaffold(
     appBar: AppBar(title: const Text('销售出库')),
     body: FutureBuilder<(List<Warehouse>, List<DispatchLineProgress>)>(
       future: _data,
@@ -206,7 +236,7 @@ class _DispatchEditorPageState extends State<DispatchEditorPage> {
         if (progress.every((p) => p.remainingLengthMilli == 0)) {
           return const Center(child: Text('销售单全部出库，没有可用明细'));
         }
-        return Form(key: _form, child: ListView(padding: const EdgeInsets.all(16), children: [
+        return AbsorbPointer(absorbing: _saving, child: Form(key: _form, onChanged: () { if (!_dirty) setState(() => _dirty = true); }, autovalidateMode: AutovalidateMode.onUserInteraction, child: ListView(padding: const EdgeInsets.all(16), children: [
           const Text('逐销售行指定实际出货米数、仓库和批次；出库将在数据库事务内验证库存并扣减。'),
           const SizedBox(height: 8),
           for (final p in progress) if (p.remainingLengthMilli > 0)
@@ -214,7 +244,8 @@ class _DispatchEditorPageState extends State<DispatchEditorPage> {
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text('${p.code} · 行 #${p.lineId}',
                   style: Theme.of(context).textTheme.titleMedium),
-                Text('未出 ${_meters(p.remainingLengthMilli)} 米，门幅 ${_meters(p.widthMilli)} 米'),
+                Text('订购 ${_meters(p.orderedLengthMilli)} 米 · 已出 ${_meters(p.dispatchedLengthMilli)} 米'),
+                Text('本次最多 ${_meters(p.remainingLengthMilli)} 米 · 门幅 ${_meters(p.widthMilli)} 米'),
                 if (p.productId == 0)
                   const Text('此销售行未绑定库存产品，禁止直接出库',
                     style: TextStyle(color: Colors.red)),
@@ -227,8 +258,9 @@ class _DispatchEditorPageState extends State<DispatchEditorPage> {
                     if (v == null || v.trim().isEmpty || v.trim() == '0') return null;
                     try {
                       final n = Fixed.parse(v, decimals: 3);
-                      return n > 0 && n <= p.remainingLengthMilli && p.productId != 0
-                        ? null : '无库存产品关联，或出库米数非法';
+                      if (p.productId == 0) return '请先关联库存商品';
+                      if (n <= 0) return '出库米数必须大于0';
+                      return n <= p.remainingLengthMilli ? null : '不能超过剩余可出库米数';
                     } catch (_) { return '米数最多三位小数'; }
                   },
                 ),
@@ -254,10 +286,10 @@ class _DispatchEditorPageState extends State<DispatchEditorPage> {
           const SizedBox(height: 12),
           const Text('出库只调整物理库存，不重复登记销售金额或收款。',
             style: TextStyle(color: Colors.grey)),
-        ]));
+        ])));
       },
     ),
-  );
+  ));
 }
 
 class SaleReturnEditorPage extends StatefulWidget {
@@ -276,6 +308,19 @@ class _SaleReturnEditorPageState extends State<SaleReturnEditorPage> {
   final _form = GlobalKey<FormState>();
   final _request = _requestKey('sale-return');
   bool _saving = false;
+  bool _dirty = false;
+  bool _allowExit = false;
+  Future<void> _leave() async {
+    if (_saving) return;
+    final leave = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('放弃本次填写？'), content: const Text('尚未登记，库存不会改变。'),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('继续填写')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('放弃填写'))]));
+    if (leave != true || !mounted) return;
+    setState(() => _allowExit = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) Navigator.pop(context); });
+  }
+
 
   Future<List<ReturnLineProgress>> _load() async {
     final rows = await widget.fulfillment.returnableLines(widget.dispatchId);
@@ -293,7 +338,13 @@ class _SaleReturnEditorPageState extends State<SaleReturnEditorPage> {
   }
 
   Future<void> _submit(List<ReturnLineProgress> progress) async {
-    if (_saving || !_form.currentState!.validate()) return;
+    if (_saving) return;
+    final errors = _form.currentState!.validateGranularly();
+    if (errors.isNotEmpty) {
+      await Scrollable.ensureVisible(errors.first.context, alignment: 0.15);
+      return;
+    }
+    FocusScope.of(context).unfocus();
     final lines = <ReturnInputLine>[];
     try {
       for (final row in progress) {
@@ -309,10 +360,15 @@ class _SaleReturnEditorPageState extends State<SaleReturnEditorPage> {
       }
       if (lines.isEmpty) throw ArgumentError('请输入实际收到的退回米数');
       setState(() => _saving = true);
+      if (!await _reviewStock(context, '核对实物退货',
+        '原出库 #${widget.dispatchId}\n${lines.map((l) => '${progress.firstWhere((p) => p.lineId == l.dispatchLineId).code}：${_meters(l.lengthMilli)}米').join('\n')}\n确认已实际收到货品，将退回原仓库和批次，不登记退款。')) { return; }
       final id = await widget.fulfillment.postSaleReturn(
         dispatchId: widget.dispatchId, requestKey: _request,
         lines: lines, note: _note.text);
-      if (mounted) Navigator.pop(context, id);
+      if (mounted) {
+        setState(() => _allowExit = true);
+        WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) Navigator.pop(context, id); });
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -324,7 +380,7 @@ class _SaleReturnEditorPageState extends State<SaleReturnEditorPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => PopScope(canPop: _allowExit || (!_saving && !_dirty), onPopInvokedWithResult: (didPop, result) { if (!didPop) _leave(); }, child: Scaffold(
     appBar: AppBar(title: const Text('销售实物退货')),
     body: FutureBuilder<List<ReturnLineProgress>>(
       future: _progress,
@@ -335,9 +391,9 @@ class _SaleReturnEditorPageState extends State<SaleReturnEditorPage> {
         if (progress.every((p) => p.remainingLengthMilli == 0)) {
           return const Center(child: Text('此出库单全部退回，无可退数量'));
         }
-        return Form(key: _form, child: ListView(padding: const EdgeInsets.all(16), children: [
+        return AbsorbPointer(absorbing: _saving, child: Form(key: _form, onChanged: () { if (!_dirty) setState(() => _dirty = true); }, autovalidateMode: AutovalidateMode.onUserInteraction, child: ListView(padding: const EdgeInsets.all(16), children: [
           const Text('仅登记已经实际收到、可以重新入库的货品。'
-            '退货回到原出库仓库/批次；财务退款或减免应收必须另走贷项/冲销流程。',
+            '退货回到原出库仓库和批次，不自动退款或减少应收。',
             style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 12),
           for (final row in progress) if (row.remainingLengthMilli > 0)
@@ -345,6 +401,7 @@ class _SaleReturnEditorPageState extends State<SaleReturnEditorPage> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text('${row.code} · 原出库行 #${row.lineId}',
                   style: Theme.of(context).textTheme.titleMedium),
+                Text('原出库 ${_meters(row.dispatchedLengthMilli)} 米 · 已退 ${_meters(row.returnedLengthMilli)} 米'),
                 Text('可退 ${_meters(row.remainingLengthMilli)} 米；'
                   '原门幅 ${_meters(row.widthMilli)} 米'),
                 Text('退回 ${row.warehouseCode} / '
@@ -373,8 +430,8 @@ class _SaleReturnEditorPageState extends State<SaleReturnEditorPage> {
           const SizedBox(height: 12),
           const Text('该操作不创建退款记录，不自动调整客户应收账款。',
             style: TextStyle(color: Colors.grey)),
-        ]));
+        ])));
       },
     ),
-  );
+  ));
 }

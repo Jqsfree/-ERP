@@ -1,3 +1,4 @@
+import 'safe_int.dart';
 /// Financial operations in this version track *cash movements*, not P&L.
 /// Customer receipts already exist in payments and MUST NOT be reentered.
 class CashEntry {
@@ -26,15 +27,18 @@ class DayStatement {
     required this.day, required this.salesReceiptsCents,
     required this.otherIncomeCents, required this.otherExpenseCents,
     required this.reversalNetCents, required this.expectedNetByMethod,
+    this.salesRefundsCents = 0, this.refundReversalsCents = 0,
   });
   final String day;
   final int salesReceiptsCents;
   final int otherIncomeCents;
   final int otherExpenseCents;
   final int reversalNetCents;
+  final int salesRefundsCents;
+  final int refundReversalsCents;
   final Map<String, int> expectedNetByMethod;
   int get expectedNetCents =>
-    salesReceiptsCents + otherIncomeCents - otherExpenseCents + reversalNetCents;
+    SafeInt.checked(BigInt.from(salesReceiptsCents) + BigInt.from(otherIncomeCents) - BigInt.from(otherExpenseCents) + BigInt.from(reversalNetCents) - BigInt.from(salesRefundsCents) + BigInt.from(refundReversalsCents));
 }
 
 class DayClose {
@@ -51,9 +55,9 @@ class DayClose {
   final String createdAt;
   Map<String, int> get differenceByMethod => {
     for (final name in expectedNetByMethod.keys)
-      name: actualNetByMethod[name]! - expectedNetByMethod[name]!,
+      name: SafeInt.checked(BigInt.from(actualNetByMethod[name]!) - BigInt.from(expectedNetByMethod[name]!)),
   };
-  int get totalDifferenceCents => differenceByMethod.values.fold<int>(0, (a, b) => a + b);
+  int get totalDifferenceCents => differenceByMethod.values.fold<int>(0, (a, b) => SafeInt.add(a, b));
   bool get hasDifference => differenceByMethod.values.any((v) => v != 0);
 }
 
@@ -96,8 +100,9 @@ class FinanceMath {
 
   static DayStatement statement(
     String day, List<Map<String, Object?>> salePayments,
-    List<Map<String, Object?>> cashEntries,
-  ) {
+    List<Map<String, Object?>> cashEntries, {
+    List<Map<String, Object?>> refunds = const [],
+  }) {
     validDay(day);
     final totals = <String, int>{for (final method in methods) method: 0};
     var saleCents = 0;
@@ -111,8 +116,8 @@ class FinanceMath {
       if (method.trim().isEmpty) throw const FormatException('收款方式缺失');
       final amount = row['amount_cents'] as int;
       if (amount <= 0) throw const FormatException('收款金额无效');
-      saleCents += amount;
-      totals[method] = (totals[method] ?? 0) + amount;
+      saleCents = SafeInt.add(saleCents, amount);
+      totals[method] = SafeInt.add(totals[method] ?? 0, amount);
     }
     for (final row in cashEntries) {
       if (row['business_date'] != day) continue;
@@ -125,24 +130,38 @@ class FinanceMath {
         throw const FormatException('收支方向或金额无效');
       }
       final signed = amount * direction;
-      totals[method] = (totals[method] ?? 0) + signed;
+      totals[method] = SafeInt.add(totals[method] ?? 0, signed);
       switch (kind) {
         case 'income':
           if (direction != 1) throw const FormatException('其他收入方向不合法');
-          income += amount;
+          income = SafeInt.add(income, amount);
           break;
         case 'expense':
           if (direction != -1) throw const FormatException('费用支出方向不合法');
-          expense += amount;
+          expense = SafeInt.add(expense, amount);
           break;
         case 'reversal':
-          reversals += signed;
+          reversals = SafeInt.add(reversals, signed);
           break;
         default:
           throw const FormatException('未知收支类型');
       }
     }
-    return DayStatement(day: day,
+    var refunded = 0;
+    var refundReversed = 0;
+    for (final row in refunds) {
+      if (!(row['created_at'] as String).startsWith(day)) continue;
+      final amount = row['amount_cents'] as int;
+      final method = row['method'] as String;
+      final reversal = row['kind'] == 'reversal';
+      if (amount <= 0 || !methods.contains(method) || !['refund','reversal'].contains(row['kind'])) {
+        throw const FormatException('退款金额、渠道或类型无效');
+      }
+      if (reversal) { refundReversed = SafeInt.add(refundReversed, amount); }
+      else { refunded = SafeInt.add(refunded, amount); }
+      totals[method] = SafeInt.add(totals[method] ?? 0, reversal ? amount : -amount);
+    }
+    return DayStatement(day: day, salesRefundsCents: refunded, refundReversalsCents: refundReversed,
       salesReceiptsCents: saleCents, otherIncomeCents: income,
       otherExpenseCents: expense, reversalNetCents: reversals,
       expectedNetByMethod: normalized(totals));

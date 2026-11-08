@@ -1,0 +1,6 @@
+00:00 +0: loading /home/jqs/Workspace/Projects/kaibao-erp/test/easy_ui_test.dart
+00:00 +0: 选库存A后手改B解除关联，草稿恢复不会扣A库存
+00:00 +1: 三步开单：逐步校验、返回保留和草稿恢复步骤
+00:01 +2: 360dp字体1.0：三页导航和开单退出保存草稿
+00:01 +3: 360dp字体2.0：三页导航和开单退出保存草稿
+00:01 +4: All tests passed!

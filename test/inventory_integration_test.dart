@@ -1,3 +1,4 @@
+import 'legacy_refund_fixture.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -142,6 +143,12 @@ void main() {
     await db.addCustomer(const Customer(name: 'v3 客户'));
     await db.close();
     final old = await databaseFactoryFfi.openDatabase(path);
+    for (final table in ['payment_requests', 'sale_creation_requests', 'sale_credit_events',
+        'sale_dispatch_contexts', 'sale_payment_contexts',
+        'sale_line_origins', 'sale_revisions']) {
+      await old.execute('DROP TABLE $table');
+    }
+    await old.execute('DROP TABLE customer_credit_entries');
     await old.execute('DROP TABLE day_closures');
     await old.execute('DROP TABLE cash_entries');
     await old.execute('DROP INDEX idx_payments_created_at');
@@ -154,7 +161,7 @@ void main() {
         'purchase_receipts', 'warehouses']) {
       await old.execute('DROP TABLE $name');
     }
-    await old.setVersion(3);
+    await removeRefundDatabaseTables(old); await old.setVersion(3);
     await old.close();
     final upgraded = AppDatabase.forTesting(factory: databaseFactoryFfi,
       databasePath: path);
@@ -200,8 +207,14 @@ void main() {
   test('历史 v3 备份恢复到 v5，新增库存表保持为空', () async {
     final (po, _, _) = await seed();
     final content = jsonDecode(await db.exportSnapshotJson()) as Map<String, dynamic>;
+    removeRefundArchiveTables(content);
     content['schemaVersion'] = 3;
     final tables = content['tables'] as Map<String, dynamic>;
+    for (final table in ['payment_requests', 'sale_creation_requests', 'sale_credit_events',
+        'sale_dispatch_contexts', 'sale_payment_contexts',
+        'sale_line_origins', 'sale_revisions', 'customer_credit_entries']) {
+      tables.remove(table);
+    }
     for (final name in ['stock_movements','purchase_receipt_lines',
         'purchase_receipts', 'warehouses']) {
       tables.remove(name);

@@ -1,0 +1,17 @@
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): false
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+Signer #1 certificate DN: CN=Kaibao Sales, O=Kaibao, C=CN
+Signer #1 certificate SHA-256 digest: d5e48b89c69c2a9f10ad3944eaf8d87dce3dac40ee7c82e4528af9c42e7599ae
+Signer #1 certificate SHA-1 digest: b2c6c561d6268a9d8853e1c14365663e0a036855
+Signer #1 certificate MD5 digest: faed66681edeb1df22819034d3e52759
+Signer #1 key algorithm: RSA
+Signer #1 key size (bits): 4096
+Signer #1 public key SHA-256 digest: a2fa70f84e91db5a3f60f17cd7666c51208596f48c4d1ec89023fb216ace84cd
+Signer #1 public key SHA-1 digest: b79a3717a8e02859e1d5054f024a39af61907393
+Signer #1 public key MD5 digest: 8924f5bf148c79a596f7fe2757bcfe22

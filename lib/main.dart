@@ -22,6 +22,9 @@ class KaibaoApp extends StatelessWidget {
     theme: ThemeData(
       useMaterial3: true,
       colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff1375b5)),
+      textTheme: const TextTheme(bodyLarge: TextStyle(fontSize: 18), bodyMedium: TextStyle(fontSize: 18), titleMedium: TextStyle(fontSize: 20)),
+      filledButtonTheme: FilledButtonThemeData(style: FilledButton.styleFrom(minimumSize: const Size(0,56), textStyle: const TextStyle(fontSize: 18))),
+      outlinedButtonTheme: OutlinedButtonThemeData(style: OutlinedButton.styleFrom(minimumSize: const Size(0,56), textStyle: const TextStyle(fontSize: 18))),
       appBarTheme: const AppBarTheme(centerTitle: true),
       inputDecorationTheme: const InputDecorationTheme(border: OutlineInputBorder(),
         contentPadding: EdgeInsets.symmetric(vertical: 11, horizontal: 12)),

@@ -105,6 +105,8 @@ void main() {
       find.widgetWithText(TextFormField, '库存批次（需与已有库存一致）'), 'LOT-A');
     await tester.tap(find.text('确认销售出库'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('确认登记'));
+    await tester.pumpAndSettle();
     expect(store.dispatches, hasLength(1));
     expect(store.lastDispatch.single.lengthMilli, 20000);
     expect(store.lastDispatch.single.batchCode, 'LOT-A');
@@ -131,6 +133,8 @@ void main() {
     await tester.enterText(
       find.widgetWithText(TextFormField, '本次实际退货米数'), '5');
     await tester.tap(find.text('确认实物退货入库'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确认登记'));
     await tester.pumpAndSettle();
     expect(store.returns, hasLength(1));
     expect(store.lastReturn.single.dispatchLineId, 20);

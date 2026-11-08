@@ -1,3 +1,4 @@
+import 'legacy_refund_fixture.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -43,7 +44,7 @@ void main() {
     final saleId = await sale();
     final originalSale = (await db.saleById(saleId))!;
     final originalDue = await db.customerOutstanding(originalSale.customerId);
-    await db.addPayment(originalSale, 1000, method: '微信');
+    await db.addPayment(originalSale, 1000, method: '微信', requestKey: 'fixture-finance_integration_test-1');
     final dueAfterPayment = await db.customerOutstanding(originalSale.customerId);
 
     final income = await db.recordCashEntry(kind: 'income', method: '现金',
@@ -131,7 +132,7 @@ void main() {
       category: '利息', amountCents: 1, requestKey: 'after-day-closed-01'),
       throwsStateError);
     await expectLater(db.addPayment((await db.saleById(saleId))!,
-      100, method: '现金'), throwsStateError);
+      100, method: '现金', requestKey: 'fixture-finance_integration_test-2'), throwsStateError);
     await expectLater(db.createSale(customer: (await db.customers()).single,
       lines: const [SaleLine(code: 'AFTER', lengthMilli: 1000,
         widthMilli: 1000, unitPriceCents: 1000)],
@@ -167,10 +168,16 @@ void main() {
     final saleId = await sale();
     await db.close();
     final old = await databaseFactoryFfi.openDatabase(dbPath);
+    for (final table in ['payment_requests', 'sale_creation_requests', 'sale_credit_events',
+        'sale_dispatch_contexts', 'sale_payment_contexts',
+        'sale_line_origins', 'sale_revisions']) {
+      await old.execute('DROP TABLE $table');
+    }
+    await old.execute('DROP TABLE customer_credit_entries');
     await old.execute('DROP TABLE day_closures');
     await old.execute('DROP TABLE cash_entries');
     await old.execute('DROP INDEX idx_payments_created_at');
-    await old.setVersion(5);
+    await removeRefundDatabaseTables(old); await old.setVersion(5);
     await old.close();
     final upgraded = AppDatabase.forTesting(
       factory: databaseFactoryFfi, databasePath: dbPath);
@@ -229,8 +236,14 @@ void main() {
   test('旧 v5 快照恢复到 v6，新增资金流水/日结表是真正空表', () async {
     final saleId = await sale();
     final raw = jsonDecode(await db.exportSnapshotJson()) as Map<String, dynamic>;
+    removeRefundArchiveTables(raw);
     raw['schemaVersion'] = 5;
     final tables = raw['tables'] as Map<String, dynamic>;
+    for (final table in ['payment_requests', 'sale_creation_requests', 'sale_credit_events',
+        'sale_dispatch_contexts', 'sale_payment_contexts',
+        'sale_line_origins', 'sale_revisions', 'customer_credit_entries']) {
+      tables.remove(table);
+    }
     tables.remove('cash_entries');
     tables.remove('day_closures');
     final previous = jsonEncode(raw);

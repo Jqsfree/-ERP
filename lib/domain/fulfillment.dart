@@ -25,7 +25,8 @@ class DispatchLineProgress {
   final int orderedLengthMilli;
   final int dispatchedLengthMilli;
   final int widthMilli;
-  int get remainingLengthMilli => orderedLengthMilli - dispatchedLengthMilli;
+  int get remainingLengthMilli => orderedLengthMilli > dispatchedLengthMilli
+      ? orderedLengthMilli - dispatchedLengthMilli : 0;
 }
 
 class DispatchRecord {

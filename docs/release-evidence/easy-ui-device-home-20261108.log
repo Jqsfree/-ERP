@@ -1,0 +1,7 @@
+android.view.View '' '凯堡软装 · 开单' [339,155][741,233]
+android.view.View '' '今天 2026-11-08' [48,326][1032,410]
+android.widget.Button '' '快速开单\n选客户、填商品，保存后图片自动存入相册' [48,458][1032,974]
+android.widget.Button '' '找单／保存图片\n查看以前的单据，重新保存或分享图片' [48,974][1032,1490]
+android.widget.Button '' '开单\nTab 1 of 3' [0,2112][360,2242]
+android.widget.Button '' '业务\nTab 2 of 3' [360,2112][720,2242]
+android.widget.Button '' '设置\nTab 3 of 3' [720,2112][1080,2242]

@@ -1,0 +1,5 @@
+android.view.View '' '核对本次收款' [192,796][888,883]
+android.view.View '' '客户：ACCEPTANCE-ONLY-20261108\n单号：XS202611080001\n本次收到：¥1.00\n收款方式：微信\n登记后未收：¥35.00\n请确认款项已经实际收到。' [192,931][888,1426]
+android.widget.Button '' '返回修改' [301,1510][526,1654]
+android.widget.Button '' '确认收款' [550,1498][888,1666]
+android.view.View '' 'Dismiss' [0,0][1080,2242]

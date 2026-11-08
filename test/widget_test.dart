@@ -3,20 +3,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kaibao_sales/main.dart';
 
 void main() {
-  testWidgets('首页展示九项业务入口，包含真实的费用收支与日结功能', (tester) async {
+  testWidgets('首页只保留开单和找单，业务及设置分区', (tester) async {
     await tester.pumpWidget(const KaibaoApp());
-    expect(find.text('凯堡软装 · 开单管理'), findsOneWidget);
-    expect(find.text('销售'), findsOneWidget);
-    expect(find.text('采购'), findsOneWidget);
+    expect(find.text('快速开单'), findsOneWidget);
+    expect(find.text('找单／保存图片'), findsOneWidget);
+    expect(find.text('采购'), findsNothing);
+    await tester.tap(find.text('业务'));
+    await tester.pumpAndSettle();
+    expect(find.text('客户与商品'), findsOneWidget);
     expect(find.text('客户'), findsOneWidget);
-    expect(find.text('供应商'), findsOneWidget);
-    expect(find.byIcon(Icons.history), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('费用收支'), 220,
-      scrollable: find.byType(Scrollable).first);
-    expect(find.text('费用收支'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('日结对账'), 220,
-      scrollable: find.byType(Scrollable).first);
-    expect(find.text('日结对账'), findsOneWidget);
+    await tester.tap(find.text('设置'));
+    await tester.pumpAndSettle();
+    expect(find.text('数据备份与恢复'), findsOneWidget);
   });
 
   testWidgets('新增客户表单可以输入客户资料', (tester) async {
@@ -25,6 +23,8 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(const KaibaoApp());
+    await tester.tap(find.text('业务'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('客户'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('新增客户'));

@@ -85,11 +85,11 @@ void main() {
     final id = await db.createSale(customer: customer, lines: [sampleLine()],
       discountCents: 36, initialReceivedCents: 0);
     final sale = (await db.saleById(id))!;
-    await expectLater(db.addPayment(sale, 144901), throwsArgumentError);
+    await expectLater(db.addPayment(sale, 144901, requestKey: 'fixture-database_integration_test-1'), throwsArgumentError);
     expect((await db.saleById(id))!.receivedCents, 0);
-    await db.addPayment(sale, 50000, method: '微信');
-    await db.addPayment(sale, 94900, method: '现金');
-    await expectLater(db.addPayment(sale, 1), throwsArgumentError);
+    await db.addPayment(sale, 50000, method: '微信', requestKey: 'fixture-database_integration_test-2');
+    await db.addPayment(sale, 94900, method: '现金', requestKey: 'fixture-database_integration_test-3');
+    await expectLater(db.addPayment(sale, 1, requestKey: 'fixture-database_integration_test-4'), throwsArgumentError);
     final loaded = (await db.saleById(id))!;
     expect(loaded.receivedCents, 144900);
     expect(loaded.currentDueCents, 0);

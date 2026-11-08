@@ -1,0 +1,88 @@
+import 'dart:io';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:kaibao_sales/data/app_database.dart';
+import 'package:kaibao_sales/domain/models.dart';
+import 'package:kaibao_sales/domain/money.dart';
+import 'package:kaibao_sales/domain/procurement.dart';
+import 'package:kaibao_sales/domain/inventory.dart';
+import 'package:kaibao_sales/domain/fulfillment.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+void main() {
+  setUpAll(sqfliteFfiInit);
+  test('PROBE decimal overflow is silently accepted in saved sale', () async {
+    final dir = await Directory.systemTemp.createTemp('erp-audit-');
+    final db = AppDatabase.forTesting(factory: databaseFactoryFfi, databasePath: '${dir.path}/db');
+    try {
+      final cents = Fixed.parse('184467440737095516.17', decimals: 2);
+      await db.addCustomer(const Customer(name: 'Audit'));
+      final id = await db.createSale(customer: (await db.customers()).single,
+        lines: [SaleLine(code: 'X', lengthMilli: 1000, widthMilli: 1000, unitPriceCents: cents)], discountCents: 0, initialReceivedCents: 0);
+      final sale = (await db.saleById(id))!;
+      print('DECIMAL_OVERFLOW input=184467440737095516.17 parsedCents=$cents savedPayable=${sale.payableCents}');
+      expect(cents, 1); expect(sale.payableCents, 1);
+    } finally { await db.close(); await dir.delete(recursive: true); }
+  });
+  test('PROBE purchase and receipt area wrap into positive stored integers', () async {
+    final dir = await Directory.systemTemp.createTemp('erp-audit-');
+    final db = AppDatabase.forTesting(factory: databaseFactoryFfi, databasePath: '${dir.path}/db');
+    try {
+      await db.addSupplier(const Supplier(name: 'S'));
+      await db.addProduct(const Product(code: 'X', unitPriceCents: 100));
+      final po = await db.createPurchaseOrder(supplierId: 1, lines: const [PurchaseLine(productId: 1, code: 'X', lengthMilli: 4294967297, widthMilli: 4294967297, unitCostCents: 100)]);
+      final warehouse = await db.addWarehouse(code: 'W', name: 'W');
+      final line = (await db.receivableLines(po)).single;
+      await db.postPurchaseReceipt(purchaseOrderId: po, requestKey: 'audit-receipt-001', lines: [ReceiptInputLine(purchaseLineId: line.lineId, warehouseId: warehouse, lengthMilli: 4294967297)]);
+      final raw = await db.db;
+      final order = (await raw.query('purchase_orders')).single;
+      final receipt = (await raw.query('purchase_receipt_lines')).single;
+      print('PROCUREMENT_OVERFLOW total=${order['total_cents']} storedArea=${receipt['area_micro']} exactArea=${BigInt.from(4294967297)*BigInt.from(4294967297)}');
+      expect(receipt['area_micro'], 8589934593);
+      expect(order['total_cents'], 858993);
+      final snapshot = await db.exportSnapshotJson();
+      final restored = AppDatabase.forTesting(factory: databaseFactoryFfi, databasePath: '${dir.path}/restored');
+      try {
+        await restored.restoreSnapshotJson(snapshot);
+        final restoredRow = (await (await restored.db).query('purchase_receipt_lines')).single;
+        print('OVERFLOW_BACKUP_RESTORE storedArea=${restoredRow['area_micro']}');
+        expect(restoredRow['area_micro'], 8589934593);
+      } finally { await restored.close(); }
+    } finally { await db.close(); await dir.delete(recursive: true); }
+  });
+  test('PROBE same payment retried is recorded twice when sufficient due remains', () async {
+    final dir = await Directory.systemTemp.createTemp('erp-audit-');
+    final db = AppDatabase.forTesting(factory: databaseFactoryFfi, databasePath: '${dir.path}/db');
+    try {
+      await db.addCustomer(const Customer(name: 'Audit'));
+      final id = await db.createSale(customer: (await db.customers()).single,
+        lines: const [SaleLine(code: 'X', lengthMilli: 1000, widthMilli: 1000, unitPriceCents: 10000)], discountCents: 0, initialReceivedCents: 0);
+      final stale = (await db.saleById(id))!;
+      await db.addPayment(stale, 2000, method: '微信');
+      await db.addPayment(stale, 2000, method: '微信');
+      final payments = await (await db.db).query('payments');
+      print('PAYMENT_REPLAY count=${payments.length} paid=${(await db.saleById(id))!.receivedCents}');
+      expect(payments, hasLength(2));
+    } finally { await db.close(); await dir.delete(recursive: true); }
+  });
+  test('PROBE contradictory catalog code remains linked to original stock product', () async {
+    final dir = await Directory.systemTemp.createTemp('erp-audit-');
+    final db = AppDatabase.forTesting(factory: databaseFactoryFfi, databasePath: '${dir.path}/db');
+    try {
+      await db.addCustomer(const Customer(name: 'Audit'));
+      await db.addProduct(const Product(code: 'A', unitPriceCents: 100));
+      final id = await db.createSale(customer: (await db.customers()).single,
+        lines: const [SaleLine(productId: 1, code: 'B', lengthMilli: 1000, widthMilli: 1000, unitPriceCents: 100)], discountCents: 0, initialReceivedCents: 0);
+      final progress = (await db.dispatchableLines(id)).single;
+      print('CATALOG_MISMATCH displayedCode=${progress.code} stockProductId=${progress.productId} catalogCode=A');
+      expect(progress.code, 'B'); expect(progress.productId, 1);
+      await db.addSupplier(const Supplier(name: 'S'));
+      final warehouse = await db.addWarehouse(code: 'W', name: 'W');
+      final po = await db.createPurchaseOrder(supplierId: 1, lines: const [PurchaseLine(productId: 1, code: 'A', lengthMilli: 10000, widthMilli: 1000, unitCostCents: 100)]);
+      await db.postPurchaseReceipt(purchaseOrderId: po, requestKey: 'audit-stock-in-01', lines: [ReceiptInputLine(purchaseLineId: (await db.receivableLines(po)).single.lineId, warehouseId: warehouse, lengthMilli: 10000)]);
+      await db.postSaleDispatch(saleId: id, requestKey: 'audit-stock-out-01', lines: [DispatchInputLine(saleLineId: progress.lineId, warehouseId: warehouse, lengthMilli: 1000)]);
+      final rows = await (await db.db).query('sale_dispatch_lines');
+      print('MISMATCH_ACTUAL_DISPATCH productId=${rows.single['product_id']} area=${rows.single['area_micro']} printedSaleCode=B');
+      expect(rows.single['product_id'], 1);
+    } finally { await db.close(); await dir.delete(recursive: true); }
+  });
+}

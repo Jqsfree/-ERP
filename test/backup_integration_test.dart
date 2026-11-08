@@ -37,7 +37,7 @@ void main() {
         discountCents: 36,
         initialReceivedCents: 50000,
       );
-      await source.addPayment((await source.saleById(saleId))!, 10000, method: '微信');
+      await source.addPayment((await source.saleById(saleId))!, 10000, method: '微信', requestKey: 'fixture-backup_integration_test-1');
       await source.saveDraft('{"schema":1,"note":"另一笔尚未开单"}');
       final plain = await source.exportSnapshotJson();
       final original = BackupSnapshot.parse(plain);

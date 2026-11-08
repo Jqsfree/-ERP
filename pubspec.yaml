@@ -1,7 +1,7 @@
 name: kaibao_sales
 publish_to: none
 description: 凯堡软装销售开单（离线优先）
-version: 0.1.0+1
+version: 0.1.9+10
 environment:
   sdk: '>=3.7.0 <4.0.0'
 dependencies:

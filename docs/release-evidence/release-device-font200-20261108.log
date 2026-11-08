@@ -1,0 +1,4 @@
+BLOCKED: adb settings put system font_scale 2.0 rejected by Android WRITE_SETTINGS permission.
+Original font_scale=0.9; verified unchanged=0.9.
+No elevated permission granted; no real-device 200% screenshot produced.
+200% Flutter layout tests passed separately; do not count these as device evidence.

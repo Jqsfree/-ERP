@@ -1,0 +1,7 @@
+android.widget.Button '' 'Back' [12,122][156,266]
+android.view.View '' '找单／保存图片' [332,157][748,232]
+android.widget.Button '' '刷新' [936,122][1080,266]
+android.view.View '' '没有找到销售单，可点击“新开单”开始。' [103,590][977,662]
+android.view.View '' '共 0 单' [0,734][1080,902]
+android.widget.Button '' '导出订单与明细 CSV' [497,746][1008,890]
+android.widget.Button '' '新开单' [714,2136][1032,2242]

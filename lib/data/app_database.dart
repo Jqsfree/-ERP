@@ -1,4 +1,14 @@
+import '../application/refund_store.dart';
+import '../domain/sale_refund.dart';
+import 'refund_schema.dart';
+import 'refund_repository.dart';
+import 'refund_ledger.dart';
+import '../application/data_integrity_store.dart';
+import '../application/payment_request_store.dart';
+import '../domain/payment_request.dart';
+import 'payment_request_schema.dart';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
@@ -12,6 +22,17 @@ import '../application/fulfillment_store.dart';
 import '../application/finance_store.dart';
 import '../domain/finance.dart';
 import 'finance_schema.dart';
+import 'product_identity.dart';
+import 'customer_credit_ledger.dart';
+import '../application/customer_credit_store.dart';
+import '../domain/customer_credit.dart';
+import '../application/sale_revision_store.dart';
+import '../domain/sale_revision.dart';
+import 'sale_revision_schema.dart';
+import 'sale_revision_repository.dart';
+import 'sale_credit_schema.dart';
+import 'sale_credit_ledger.dart';
+import '../domain/sale_settlement.dart';
 import 'finance_repository.dart';
 import '../domain/fulfillment.dart';
 import 'fulfillment_schema.dart';
@@ -21,8 +42,9 @@ import 'inventory_schema.dart';
 import '../domain/procurement.dart';
 import 'backup_snapshot.dart';
 import '../domain/money.dart';
+import '../domain/safe_int.dart';
 
-class AppDatabase implements SalesStore, BackupStore, ProcurementStore, InventoryStore, FulfillmentStore, FinanceStore {
+class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerificationStore, ProcurementStore, InventoryStore, FulfillmentStore, FinanceStore, SaleRevisionStore, CustomerCreditStore, PaymentRequestStore, DataIntegrityStore {
   AppDatabase._({DatabaseFactory? factory, String? databasePath, DateTime Function()? clock})
       : _factory = factory, _databasePath = databasePath, _clock = clock ?? DateTime.now;
 
@@ -32,7 +54,7 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
       : this._(factory: factory, databasePath: databasePath, clock: clock);
 
   static final AppDatabase instance = AppDatabase._();
-  static const schemaVersion = 6;
+  static const schemaVersion = 11;
   final DatabaseFactory? _factory;
   final String? _databasePath;
   final DateTime Function() _clock;
@@ -93,6 +115,11 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
         await InventorySchema.create(db);
         await FulfillmentSchema.create(db);
         await FinanceSchema.create(db);
+        await CustomerCreditLedger.create(db);
+        await SaleRevisionSchema.create(db);
+        await SaleCreditSchema.create(db);
+        await PaymentRequestSchema.create(db);
+        await RefundSchema.create(db);
       },
       onUpgrade: (db, from, to) async {
         if (from < 2) await db.execute(_draftSchema);
@@ -100,6 +127,11 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
         if (from < 4) await InventorySchema.create(db);
         if (from < 5) await FulfillmentSchema.create(db);
         if (from < 6) await FinanceSchema.create(db);
+        if (from < 7) await CustomerCreditLedger.create(db);
+        if (from < 8) await SaleRevisionSchema.create(db);
+        if (from < 9) await SaleCreditSchema.create(db);
+        if (from < 10) await PaymentRequestSchema.create(db);
+        if (from < 11) await RefundSchema.create(db);
       },
       ),
     );
@@ -285,7 +317,7 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
       ''', [prefix.length + 1, '$prefix%']);
       final next = (ids.single['latest'] as int) + 1;
       final number = '$prefix${next.toString().padLeft(4, '0')}';
-      final subtotal = persisted.fold<int>(0, (sum, row) => sum + row.amountCents);
+      final subtotal = persisted.fold<int>(0, (sum, row) => SafeInt.add(sum, row.amountCents, label: '采购合计'));
       final id = await tx.insert('purchase_orders', {
         'number': number, 'date': date, 'supplier_id': supplierId,
         'supplier_name_snapshot': supplier.name,
@@ -475,7 +507,7 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
           throw StateError('收货米数超过采购行的剩余米数');
         }
         final width = row['width_milli'] as int;
-        final area = input.lengthMilli * width;
+        final area = BillingMath.areaMicro(input.lengthMilli, width);
         if (area <= 0 || area > 9223372036854775807) {
           throw ArgumentError('收货面积超出存储范围');
         }
@@ -658,35 +690,116 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
 
   @override
   Future<int> customerOutstanding(int customerId, {Transaction? tx}) async {
-    final database = tx ?? await db;
-    final customers = await database.query('customers', where: 'id=?', whereArgs: [customerId]);
-    if (customers.isEmpty) throw StateError('客户不存在');
-    final opening = customers.first['opening_balance_cents'] as int;
-    final sums = await database.rawQuery('''
-      SELECT COALESCE(SUM(s.subtotal_cents - s.discount_cents -
-        COALESCE((SELECT SUM(p.amount_cents) FROM payments p WHERE p.sale_id=s.id), 0)),0) AS due
-      FROM sales s WHERE s.customer_id=? AND s.status='confirmed'
-    ''', [customerId]);
-    return opening + (sums.first['due'] as int);
+    if (tx == null) {
+      return (await db).transaction((tx) => customerOutstanding(customerId, tx: tx));
+    }
+    return SaleRevisionRepository.customerOutstanding(tx, customerId);
   }
+
+  @override
+  Future<CustomerCreditAccount> customerCreditAccount(int customerId) async =>
+    (await db).transaction((tx) => CustomerCreditLedger.account(tx, customerId));
+
+  Future<RefundRepository> _refunds() async => RefundRepository(await db, _clock);
+  @override
+  Future<RefundRequest> prepareSaleRefund({required int saleId, required int expectedRevision,
+    required int customerId, required int epoch, required int amountCents, required String method,
+    required String requestKey, String note = ''}) async => (await _refunds()).prepareSaleRefund(
+      saleId: saleId, expectedRevision: expectedRevision, customerId: customerId, epoch: epoch,
+      amountCents: amountCents, method: method, requestKey: requestKey, note: note);
+  @override
+  Future<RefundRequest> prepareRefundReversal({required int originalEventId, required String reason,
+    required bool fundsRecoveredOrMistake, required String requestKey}) async =>
+      (await _refunds()).prepareRefundReversal(originalEventId: originalEventId, reason: reason,
+        fundsRecoveredOrMistake: fundsRecoveredOrMistake, requestKey: requestKey);
+  @override
+  Future<int> postRefundRequest(String requestKey) async => (await _refunds()).postRefundRequest(requestKey);
+  @override
+  Future<void> cancelRefundRequest(String requestKey) async => (await _refunds()).cancelRefundRequest(requestKey);
+  @override
+  Future<RefundRequest?> refundRequest(String requestKey) async => (await _refunds()).refundRequest(requestKey);
+  @override
+  Future<RefundRequest?> latestRefundRequest(int saleId) async => (await _refunds()).latestRefundRequest(saleId);
+  @override
+  Future<List<SaleRefundEvent>> saleRefundEvents(int saleId) async => (await _refunds()).saleRefundEvents(saleId);
+
+  @override
+  Future<int> transferSaleRefundToCredit({required int saleId, required int expectedRevision,
+    required int customerId, required int epoch, required int amountCents, required String requestKey}) async {
+    final key = requestKey.trim();
+    if (key.length < 12 || key.length > 128 || amountCents <= 0) throw ArgumentError('转余额参数无效');
+    final payload = jsonEncode({'saleId': saleId, 'expectedRevision': expectedRevision,
+      'customerId': customerId, 'epoch': epoch, 'amountCents': amountCents, 'kind': 'transfer'});
+    return (await db).transaction((tx) async {
+      final previous = await tx.query('sale_credit_events', where: 'request_key=?', whereArgs: [key]);
+      if (previous.isNotEmpty) {
+        if (previous.single['payload'] != payload) throw StateError('相同请求标识的转余额内容不同');
+        return previous.single['id'] as int;
+      }
+      final snapshot = await SaleRevisionRepository.currentSnapshot(tx, saleId);
+      if (snapshot == null || snapshot['version'] != expectedRevision) throw StateError('销售单已修改，请刷新后转入余额');
+      final pending = await SaleRevisionRepository.refundRows(tx, saleId, snapshot);
+      final source = pending.where((r) => r['customerId'] == customerId && r['epoch'] == epoch);
+      if (source.length != 1 || amountCents > (source.single['amountCents'] as int)) {
+        throw StateError('待退款已变化；转入金额不得超过当前待退款');
+      }
+      return SaleCreditLedger.post(tx, saleId: saleId, customerId: customerId,
+        epoch: epoch, version: expectedRevision, kind: 'transfer', amount: amountCents,
+        key: key, payload: payload, now: _clock());
+    });
+  }
+
+  @override
+  Future<int> createSaleWithCredit({required Customer customer, required List<SaleLine> lines,
+    required int discountCents, required int initialReceivedCents, required String requestKey, String note = ''}) =>
+    _createSale(customer: customer, lines: lines, discountCents: discountCents,
+      initialReceivedCents: initialReceivedCents, requestKey: requestKey, note: note);
 
   /// Creates a confirmed invoice in one SQLite transaction.
   /// Serial is allocated inside the transaction to prevent duplicate numbers.
   @override
   Future<int> createSale({required Customer customer, required List<SaleLine> lines,
-    required int discountCents, required int initialReceivedCents, String note = ''}) async {
+    required int discountCents, required int initialReceivedCents, String note = ''}) =>
+    _createSale(customer: customer, lines: lines, discountCents: discountCents,
+      initialReceivedCents: initialReceivedCents, note: note);
+
+  Future<int> _createSale({required Customer customer, required List<SaleLine> lines,
+    required int discountCents, required int initialReceivedCents, String? requestKey, String note = ''}) async {
+    lines = List.unmodifiable(lines);
+    final key = requestKey?.trim();
+    if (key != null && (key.length < 12 || key.length > 128)) throw ArgumentError('开单请求标识无效');
     if (customer.id == null) throw ArgumentError('请选择已保存的客户');
     if (lines.isEmpty) throw ArgumentError('至少需要一条产品');
+    final max = BigInt.from(9223372036854775807);
+    var checkedSubtotal = BigInt.zero;
     for (final line in lines) {
       if (line.code.trim().isEmpty) throw ArgumentError('型号不能为空');
       if (line.lengthMilli <= 0 || line.widthMilli <= 0) throw ArgumentError('米数和门幅必须大于零');
+      final area = BigInt.from(line.lengthMilli) * BigInt.from(line.widthMilli);
+      final numerator = area * BigInt.from(line.unitPriceCents);
+      if (area > max || numerator * BigInt.two + BigInt.from(1000000) > max) {
+        throw ArgumentError('销售行数值超过安全计算范围');
+      }
+      checkedSubtotal += BigInt.from(line.totalCents);
+      if (checkedSubtotal > max) throw ArgumentError('产品合计超过可保存范围');
     }
-    final subtotal = lines.fold<int>(0, (sum, line) => sum + line.totalCents);
+    final subtotal = checkedSubtotal.toInt();
     final payable = BillingMath.payable(subtotal, discountCents);
     if (initialReceivedCents < 0 || initialReceivedCents > payable) {
       throw ArgumentError('本次收款不能超过应收金额');
     }
+    final payload = jsonEncode({'customerId': customer.id, 'discountCents': discountCents,
+      'initialReceivedCents': initialReceivedCents, 'note': note.trim(),
+      'lines': lines.map((l) => SaleRevisionRepository.lineRow(0, l)..remove('sale_id')).toList()});
     return (await db).transaction((tx) async {
+      if (key != null) {
+        final previous = await tx.query('sale_creation_requests', where: 'request_key=?', whereArgs: [key]);
+        if (previous.isNotEmpty) {
+          if (previous.single['payload'] != payload) throw StateError('相同请求标识的开单内容不同');
+          return previous.single['sale_id'] as int;
+        }
+      }
+      await ProductIdentity.validate(tx, lines);
       final priorDue = await customerOutstanding(customer.id!, tx: tx);
       final now = _clock();
       final date = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
@@ -723,6 +836,22 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
           'method': '其他', 'remark': '开单收款', 'created_at': now.toIso8601String(),
         });
       }
+      final available = await CustomerCreditLedger.balance(tx, customer.id!);
+      if (available < 0) throw StateError('客户余额流水异常，不能开单抵扣');
+      final applied = SaleSettlement.calculate(payableCents: payable,
+        netCashCents: initialReceivedCents, allocatedCreditCents: 0,
+        availableCreditCents: available, customerChanged: false, useAvailableCredit: true).creditAppliedCents;
+      if (applied > 0) {
+        await SaleCreditLedger.post(tx, saleId: saleId, customerId: customer.id!,
+          epoch: 0, version: 0, kind: 'apply', amount: applied,
+          key: 'credit:opening:$saleId', now: now,
+          payload: SaleCreditLedger.allocationPayload(saleId: saleId, customerId: customer.id!,
+            epoch: 0, version: 0, kind: 'apply', amount: applied));
+      }
+      if (key != null) {
+        await tx.insert('sale_creation_requests', {'sale_id': saleId,
+          'request_key': key, 'payload': payload, 'created_at': now.toIso8601String()});
+      }
       // The order and the draft removal commit or roll back together.
       await tx.delete('sale_drafts', where: 'id = ?', whereArgs: [1]);
       return saleId;
@@ -738,9 +867,12 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
     return items.isEmpty ? null : items.single;
   }
 
-  /// Two main queries instead of N+1; chunks keep IN clause under SQLite limits.
+  /// Batched original lines, current versions and receipt allocations.
   Future<List<Sale>> _loadSales({int? saleId}) async {
-    final database = await db;
+    return (await db).transaction((tx) => _readSales(tx, saleId: saleId));
+  }
+
+  Future<List<Sale>> _readSales(DatabaseExecutor database, {int? saleId}) async {
     final rows = await database.rawQuery('''
       SELECT s.*, COALESCE((SELECT SUM(p.amount_cents) FROM payments p WHERE p.sale_id=s.id),0) AS paid
       FROM sales s ${saleId == null ? '' : 'WHERE s.id = ?'} ORDER BY s.id DESC
@@ -752,14 +884,41 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
       final chunk = ids.skip(offset).take(400).toList();
       final placeholders = List.filled(chunk.length, '?').join(',');
       final details = await database.rawQuery(
-        'SELECT * FROM sale_lines WHERE sale_id IN ($placeholders) ORDER BY sale_id, id',
+        'SELECT * FROM sale_lines WHERE sale_id IN ($placeholders) AND id NOT IN (SELECT sale_line_id FROM sale_line_origins) ORDER BY sale_id, id',
         chunk);
       for (final detail in details) {
         (linesBySale[detail['sale_id'] as int] ??= []).add(SaleLine.fromMap(detail));
       }
     }
+    final revisions = await database.rawQuery('''SELECT r.sale_id,r.snapshot FROM sale_revisions r
+      WHERE r.version>0 AND r.version=(SELECT MAX(x.version) FROM sale_revisions x WHERE x.sale_id=r.sale_id)''');
+    final current = <int, Sale>{};
+    final idsSet = ids.toSet();
+    final paymentRows = await database.rawQuery('''SELECT p.sale_id,
+      COALESCE(c.customer_epoch,0) AS epoch, SUM(p.amount_cents) AS paid
+      FROM payments p LEFT JOIN sale_payment_contexts c ON c.payment_id=p.id
+      ${saleId == null ? '' : 'WHERE p.sale_id=?'}
+      GROUP BY p.sale_id, COALESCE(c.customer_epoch,0)''', saleId == null ? [] : [saleId]);
+    final paidByEpoch = {for (final p in paymentRows) '${p['sale_id']}:${p['epoch']}': p['paid'] as int};
+    final creditRows = await database.rawQuery('''SELECT sale_id, customer_epoch,
+      SUM(CASE kind WHEN 'apply' THEN amount_cents WHEN 'release' THEN -amount_cents ELSE 0 END) AS applied,
+      SUM(CASE WHEN kind='transfer' THEN amount_cents ELSE 0 END) AS transferred
+      FROM sale_credit_events ${saleId == null ? '' : 'WHERE sale_id=?'}
+      GROUP BY sale_id,customer_epoch''', saleId == null ? [] : [saleId]);
+    final creditByEpoch = {for (final c in creditRows) '${c['sale_id']}:${c['customer_epoch']}': c};
+    for (final r in revisions) {
+      final id = r['sale_id'] as int;
+      if (!idsSet.contains(id)) continue;
+      final s = Map<String, Object?>.from(jsonDecode(r['snapshot'] as String) as Map);
+      current[id] = SaleRevisionRepository.readSale(s,
+        paidByEpoch['$id:${s['epoch']}'] ?? 0,
+        creditAppliedCents: creditByEpoch['$id:${s['epoch']}']?['applied'] as int? ?? 0,
+        transferredCents: creditByEpoch['$id:${s['epoch']}']?['transferred'] as int? ?? 0,
+        refundedCents: await RefundLedger.net(database, id, s['epoch'] as int));
+    }
     return rows.map((row) {
       final id = row['id'] as int;
+      if (current.containsKey(id)) return current[id]!;
       return Sale(
         id: id, number: row['number'] as String, date: row['date'] as String,
         customerId: row['customer_id'] as int,
@@ -770,6 +929,8 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
         discountCents: row['discount_cents'] as int,
         priorDueCents: row['prior_due_snapshot'] as int,
         receivedCents: row['paid'] as int,
+        creditAppliedCents: creditByEpoch['$id:0']?['applied'] as int? ?? 0,
+        transferredCents: creditByEpoch['$id:0']?['transferred'] as int? ?? 0,
         status: row['status'] as String, note: row['note'] as String,
         lines: linesBySale[id] ?? [],
       );
@@ -777,31 +938,146 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
   }
 
   @override
-  Future<void> addPayment(Sale sale, int amountCents, {String method = '其他'}) async {
+  Future<void> addPayment(Sale sale, int amountCents, {required String requestKey, String method = '其他'}) async {
+    final key = _paymentKey(requestKey);
     if (amountCents <= 0) throw ArgumentError('收款金额必须大于零');
     if (!FinanceMath.methods.contains(method)) {
       throw ArgumentError('收款渠道应为微信/支付宝/现金/银行转账/其他');
     }
     await (await db).transaction((tx) async {
-      final day = FinanceMath.day(_clock());
+      final prior = await tx.query('payment_requests', where: 'request_key=?', whereArgs: [key]);
+      if (prior.isNotEmpty) {
+        _samePayment(prior.single, sale, amountCents, method);
+        if (prior.single['status'] == 'posted') return;
+        if (prior.single['status'] == 'cancelled') throw StateError('该收款请求已取消');
+      } else {
+        final pending = await tx.query('payment_requests', where: "sale_id=? AND status='pending'", whereArgs: [sale.id]);
+        if (pending.isNotEmpty) throw StateError('本单有未完成收款，请先查询或处理原请求');
+      }
+      final now = _clock();
+      final day = FinanceMath.day(now);
       final closed = await tx.query('day_closures',
         columns: ['id'], where: 'business_date=?', whereArgs: [day]);
       if (closed.isNotEmpty) throw StateError('当天已日结，不允许追加销售收款');
-      final r = await tx.rawQuery('''SELECT s.status,
-        (s.subtotal_cents-s.discount_cents-COALESCE((SELECT SUM(p.amount_cents)
-         FROM payments p WHERE p.sale_id=s.id),0)) AS due
-        FROM sales s WHERE s.id=?''', [sale.id]);
-      if (r.isEmpty || r.first['status'] != 'confirmed') throw StateError('单据状态不允许收款');
-      if (amountCents > (r.first['due'] as int)) throw ArgumentError('收款超过剩余应收款');
-      await tx.insert('payments', {
+      final s = await SaleRevisionRepository.currentSnapshot(tx, sale.id);
+      if (s == null) throw StateError('单据不存在');
+      if (s['version'] != sale.revision) throw StateError('销售单已修改，请刷新后收款');
+      final credit = await SaleCreditLedger.amounts(tx, sale.id, s['epoch'] as int);
+      final fresh = SaleRevisionRepository.readSale(s,
+        await SaleRevisionRepository.received(tx, sale.id, s['epoch'] as int),
+        creditAppliedCents: credit.applied, transferredCents: credit.transferred,
+        refundedCents: await RefundLedger.net(tx, sale.id, s['epoch'] as int));
+      if (fresh.status != 'confirmed') throw StateError('单据状态不允许收款');
+      if (amountCents > fresh.currentDueCents) throw ArgumentError('收款超过剩余应收款');
+      final paymentId = await tx.insert('payments', {
         'sale_id': sale.id, 'amount_cents': amountCents,
-        'method': method, 'remark': '', 'created_at': _clock().toIso8601String(),
+        'method': method, 'remark': '', 'created_at': now.toIso8601String(),
       });
+      await tx.insert('sale_payment_contexts', {'payment_id': paymentId,
+        'customer_id': fresh.customerId, 'customer_epoch': s['epoch']});
+      if (prior.isEmpty) {
+        await tx.insert('payment_requests', _paymentRow(sale, amountCents, method, key, now)
+          ..addAll({'status': 'posted', 'payment_id': paymentId}));
+      } else {
+        await tx.update('payment_requests', {'status': 'posted', 'payment_id': paymentId, 'updated_at': now.toIso8601String()}, where: 'request_key=?', whereArgs: [key]);
+      }
     });
   }
 
+  static String _paymentKey(String value) {
+    final key = value.trim();
+    if (key.length < 12 || key.length > 128) throw ArgumentError('收款请求标识无效');
+    return key;
+  }
+  static void _samePayment(Map<String,Object?> row, Sale sale, int amount, String method) {
+    if (row['sale_id'] != sale.id || row['expected_revision'] != sale.revision || row['amount_cents'] != amount || row['method'] != method) {
+      throw StateError('相同收款请求标识的内容不一致，禁止重复入账');
+    }
+  }
+  static Map<String,Object?> _paymentRow(Sale sale, int amount, String method, String key, DateTime now) => {
+    'request_key': key, 'sale_id': sale.id, 'expected_revision': sale.revision,
+    'amount_cents': amount, 'method': method, 'status': 'pending', 'payment_id': null,
+    'created_at': now.toIso8601String(), 'updated_at': now.toIso8601String(),
+  };
+  @override
+  Future<PaymentRequest?> latestPaymentRequest(int saleId) async {
+    final rows = await (await db).query('payment_requests', where: "sale_id=? AND status!='cancelled'", whereArgs: [saleId], orderBy: 'id DESC', limit: 1);
+    return rows.isEmpty ? null : PaymentRequest.fromMap(rows.single);
+  }
+  @override
+  Future<PaymentRequest> preparePayment(Sale sale, int amountCents, {required String requestKey, required String method}) async {
+    final key = _paymentKey(requestKey);
+    if (amountCents <= 0 || !FinanceMath.methods.contains(method)) throw ArgumentError('收款金额或渠道无效');
+    return (await db).transaction((tx) async {
+      final rows = await tx.query('payment_requests', where: 'request_key=?', whereArgs: [key]);
+      if (rows.isNotEmpty) {
+        _samePayment(rows.single, sale, amountCents, method);
+        if (rows.single['status'] == 'cancelled') throw StateError('原请求已取消');
+        return PaymentRequest.fromMap(rows.single);
+      }
+      final existing = await tx.query('payment_requests', where: "sale_id=? AND status='pending'", whereArgs: [sale.id]);
+      if (existing.isNotEmpty) throw StateError('存在未完成收款，请返回查询原请求');
+      final fresh = (await _readSales(tx, saleId: sale.id)).single;
+      if (fresh.revision != sale.revision || amountCents > fresh.currentDueCents) throw StateError('单据或未收金额已变化，请重新核对');
+      final row = _paymentRow(sale, amountCents, method, key, _clock());
+      final id = await tx.insert('payment_requests', row);
+      return PaymentRequest.fromMap({'id': id, ...row});
+    });
+  }
+  @override
+  Future<void> cancelPaymentRequest(String requestKey) async {
+    await (await db).transaction((tx) async {
+      final rows = await tx.query('payment_requests', where: 'request_key=?', whereArgs: [_paymentKey(requestKey)]);
+      if (rows.isEmpty) return;
+      if (rows.single['status'] == 'posted') throw StateError('该请求已经入账，只能查询，不能取消');
+      await tx.update('payment_requests', {'status': 'cancelled', 'updated_at': _clock().toIso8601String()}, where: 'request_key=?', whereArgs: [requestKey.trim()]);
+    });
+  }
+
+  Future<SaleRevisionRepository> _revisions() async => SaleRevisionRepository(await db, _clock);
+
+  @override
+  Future<int> reviseSale({required int saleId, required int expectedRevision,
+    required String requestKey, required int customerId, required String date,
+    required List<SaleLine> lines, required int discountCents, required String note}) async =>
+      (await _revisions()).reviseSale(saleId: saleId, expectedRevision: expectedRevision,
+        requestKey: requestKey, customerId: customerId, date: date, lines: lines,
+        discountCents: discountCents, note: note);
+
+  @override
+  Future<List<SaleRevisionRecord>> saleRevisions(int saleId) async => (await _revisions()).saleRevisions(saleId);
+  @override
+  Future<List<PendingSaleRefund>> pendingSaleRefunds(int saleId) async => (await _revisions()).pendingSaleRefunds(saleId);
+  @override
+  Future<List<PendingSaleReturn>> pendingSaleReturns(int saleId) async => (await _revisions()).pendingSaleReturns(saleId);
+
   /// A single SQLite transaction supplies a consistent multi-table snapshot.
   /// Do not copy only the main DB file: SQLite may be in WAL mode.
+  @override
+  Future<List<String>> checkDataIntegrity() async => (await db).transaction((tx) async {
+    final issues = <String>[];
+    final tables = <String,List<Map<String,Object?>>>{};
+    for (final table in BackupSnapshot.columns.keys) {
+      tables[table] = (await tx.query(table, orderBy: 'id')).map((r) => Map<String,Object?>.from(r)).toList();
+    }
+    try { BackupSnapshot.create(tables, _clock()); }
+    catch (e) { issues.add('金额、流水或关联检查未通过：$e'); }
+    final products = {for (final p in tables['products']!) p['id']: p};
+    for (final header in tables['sales']!) {
+      try {
+        final snapshot = await SaleRevisionRepository.currentSnapshot(tx, header['id'] as int);
+        for (final raw in snapshot!['lines'] as List) {
+          final line = raw as Map;
+          final product = products[line['product_id']];
+          if (line['product_id'] != null && (product == null || product['code'] != line['code_snapshot'])) {
+            issues.add('销售单 ${header['number']} 当前行 ${line['id']}：单据型号与库存商品标识不同。可能为旧录入不一致或主数据变化，出库前需通过改单核实关联，历史记录保持不变。');
+          }
+        }
+      } catch (_) { issues.add('销售单 ${header['number']} 当前版本读取失败，请核对历史记录。'); }
+    }
+    return issues;
+  });
+
   @override
   Future<String> exportSnapshotJson() async {
     final database = await db;
@@ -841,6 +1117,37 @@ class AppDatabase implements SalesStore, BackupStore, ProcurementStore, Inventor
         throw StateError('备份恢复后的完整性检查失败');
       }
     });
+  }
+
+  @override
+  Future<Map<String, int>> verifySnapshotJson(String plaintextSnapshot) async {
+    final expected = BackupSnapshot.parse(plaintextSnapshot);
+    final directory = await Directory.systemTemp.createTemp('kaibao-restore-verification-');
+    final factory = _factory ?? databaseFactory;
+    final path = p.join(directory.path, 'verification.db');
+    final isolated = AppDatabase.forTesting(factory: factory, databasePath: path);
+    try {
+      await isolated.restoreSnapshotJson(plaintextSnapshot);
+      await isolated.close();
+      // Reopen from disk, then run the same full ledger validation as an export.
+      final actual = BackupSnapshot.parse(await isolated.exportSnapshotJson());
+      for (final table in BackupSnapshot.columns.keys) {
+        final wanted = [...expected.rows[table]!]
+          ..sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
+        final columns = BackupSnapshot.columns[table]!;
+        List<List<Object?>> cells(List<Map<String, Object?>> rows) =>
+          [for (final row in rows) [for (final column in columns) row[column]]];
+        if (jsonEncode(cells(actual.rows[table]!)) != jsonEncode(cells(wanted))) {
+          throw StateError('隔离恢复重开后数据不一致：$table');
+        }
+      }
+      if (!await isolated.integrityOk()) throw StateError('隔离恢复重开后数据库完整性失败');
+      return actual.counts;
+    } finally {
+      await isolated.close();
+      await factory.deleteDatabase(path);
+      await directory.delete(recursive: true);
+    }
   }
 
   Future<void> close() async {

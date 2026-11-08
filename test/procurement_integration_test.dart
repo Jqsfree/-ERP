@@ -1,3 +1,4 @@
+import 'legacy_refund_fixture.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -200,8 +201,14 @@ void main() {
   test('旧版 v2 逻辑备份恢复到 v3 时采购表为空，原有记录保留', () async {
     await store.addCustomer(const Customer(name: '保留客户'));
     final newBackup = jsonDecode(await store.exportSnapshotJson()) as Map<String, dynamic>;
+    removeRefundArchiveTables(newBackup);
     newBackup['schemaVersion'] = 2;
     final tables = newBackup['tables'] as Map<String, dynamic>;
+    for (final table in ['payment_requests', 'sale_creation_requests', 'sale_credit_events',
+        'sale_dispatch_contexts', 'sale_payment_contexts',
+        'sale_line_origins', 'sale_revisions', 'customer_credit_entries']) {
+      tables.remove(table);
+    }
     tables.remove('suppliers');
     tables.remove('purchase_orders');
     tables.remove('purchase_lines');

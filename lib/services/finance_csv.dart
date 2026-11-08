@@ -5,7 +5,7 @@ import '../domain/money.dart';
 /// are never modified and internal monetary values remain integer cents.
 class FinanceCsvExporter {
   FinanceCsvExporter._();
-  static const version = 1;
+  static const version = 2;
 
   static String generate(DayStatement report, DayClose close) {
     if (report.day != close.day ||
@@ -18,7 +18,7 @@ class FinanceCsvExporter {
     buffer.write(_row(const [
       '业务日期','支付渠道','系统资金净变动(元)','外部核对净变动(元)',
       '外部减系统差异(元)','差异原因','销售客户收款合计(元)',
-      '其他收入合计(元)','费用支出合计(元)','冲销净额合计(元)',
+      '其他收入合计(元)','费用支出合计(元)','冲销净额合计(元)','实际退款合计(元)','退款冲销合计(元)',
     ]));
     String money(int cents) => Fixed.format(cents, decimals: 2);
     var actualTotal = 0;
@@ -29,7 +29,7 @@ class FinanceCsvExporter {
       actualTotal += actual;
       buffer.write(_row([
         report.day, _safe(method), money(expected), money(actual),
-        money(actual - expected), '', '', '', '', '',
+        money(actual - expected), '', '', '', '', '', '', '',
       ]));
     }
     buffer.write(_row([
@@ -40,7 +40,7 @@ class FinanceCsvExporter {
       money(report.salesReceiptsCents),
       money(report.otherIncomeCents),
       money(report.otherExpenseCents),
-      money(report.reversalNetCents),
+      money(report.reversalNetCents), money(report.salesRefundsCents), money(report.refundReversalsCents),
     ]));
     return buffer.toString();
   }

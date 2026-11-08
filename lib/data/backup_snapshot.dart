@@ -1,8 +1,16 @@
+import 'refund_schema.dart';
+import 'refund_snapshot_validator.dart';
+import 'payment_request_schema.dart';
 import 'dart:convert';
 
 import '../domain/money.dart';
+import '../domain/safe_int.dart';
 import 'fulfillment_snapshot_validator.dart';
 import 'finance_snapshot_validator.dart';
+import 'sale_revision_schema.dart';
+import 'sale_revision_snapshot_validator.dart';
+import 'sale_credit_schema.dart';
+import 'sale_credit_snapshot_validator.dart';
 
 /// Logical SQLite snapshot contract. Its column allowlist intentionally fails
 /// closed on future schema changes until backup migrations are implemented.
@@ -11,7 +19,7 @@ class BackupSnapshot {
 
   static const format = 'kaibao.sqlite.snapshot';
   static const version = 1;
-  static const schemaVersion = 6;
+  static const schemaVersion = 11;
   static const maxJsonLength = 32 * 1024 * 1024;
   static const maxRowsPerTable = 50000;
 
@@ -73,8 +81,16 @@ class BackupSnapshot {
     ],
     'day_closures': [
       'id','business_date','request_key','expected_json','actual_json',
-      'variance_reason','created_at',
+      'variance_reason','created_at','refund_cutoff',
     ],
+    'customer_credit_entries': ['id', 'customer_id', 'sale_id', 'request_key',
+      'delta_cents', 'reason', 'created_at'],
+    ...SaleRevisionSchema.columns,
+    'sale_creation_requests': ['id', 'sale_id', 'request_key', 'payload', 'created_at'],
+    ...PaymentRequestSchema.columns,
+    ...RefundSchema.columns,
+    'sale_credit_events': ['id', 'ledger_entry_id', 'sale_id', 'customer_id',
+      'customer_epoch', 'sale_version', 'kind', 'amount_cents', 'request_key', 'payload', 'created_at', 'refund_cutoff'],
   };
 
   final String createdAt;
@@ -104,7 +120,7 @@ class BackupSnapshot {
     final decoded = jsonDecode(input);
     if (decoded is! Map<String, dynamic> ||
         decoded['format'] != format || decoded['version'] != version ||
-        (decoded['schemaVersion'] != schemaVersion && decoded['schemaVersion'] != 5 &&
+        (decoded['schemaVersion'] != schemaVersion && decoded['schemaVersion'] != 10 && decoded['schemaVersion'] != 9 && decoded['schemaVersion'] != 8 && decoded['schemaVersion'] != 7 && decoded['schemaVersion'] != 6 && decoded['schemaVersion'] != 5 &&
           decoded['schemaVersion'] != 4 && decoded['schemaVersion'] != 3 &&
           decoded['schemaVersion'] != 2) ||
         decoded['createdAt'] is! String) {
@@ -158,6 +174,45 @@ class BackupSnapshot {
         tables[table] = <Map<String, Object?>>[];
       }
     }
+    if ((decoded['schemaVersion'] as int) < 7) {
+      if (tables.containsKey('customer_credit_entries')) {
+        throw const FormatException('旧版备份不应包含余额流水');
+      }
+      tables['customer_credit_entries'] = <Map<String, Object?>>[];
+    }
+    if ((decoded['schemaVersion'] as int) < 8) {
+      for (final table in SaleRevisionSchema.columns.keys) {
+        if (tables.containsKey(table)) throw FormatException('旧版备份不应包含修订表：$table');
+        tables[table] = <Map<String, Object?>>[];
+      }
+    }
+    if ((decoded['schemaVersion'] as int) < 9) {
+      for (final table in SaleCreditSchema.columns.keys) {
+        if (tables.containsKey(table)) throw FormatException('旧版备份不应包含v9余额业务表：$table');
+        tables[table] = <Map<String,Object?>>[];
+      }
+      final legacy = tables['customer_credit_entries'] as List;
+      tables['day_closures'] = (tables['day_closures'] as List).map((r) =>
+        Map<String,Object?>.from(r as Map)..['refund_cutoff'] = 0).toList();
+      tables['sale_credit_events'] = legacy.map((r) {
+        final e = Map<String,Object?>.from(r as Map);
+        return SaleCreditSchema.legacyEvent(e, e['id'] as int);
+      }).toList();
+    }
+    if ((decoded['schemaVersion'] as int) < 10) {
+      if (tables.containsKey('payment_requests')) throw const FormatException('旧版备份不应包含v10收款请求');
+      tables['payment_requests'] = <Map<String,Object?>>[];
+    }
+    if ((decoded['schemaVersion'] as int) < 11) {
+      for (final table in RefundSchema.columns.keys) {
+        if (tables.containsKey(table)) throw FormatException('旧版备份不应包含v11退款表：$table');
+        tables[table] = <Map<String,Object?>>[];
+      }
+      tables['day_closures'] = (tables['day_closures'] as List).map((r) =>
+        Map<String,Object?>.from(r as Map)..['refund_cutoff'] = 0).toList();
+      tables['sale_credit_events'] = (tables['sale_credit_events'] as List).map((r) =>
+        Map<String,Object?>.from(r as Map)..['refund_cutoff'] = 0).toList();
+    }
     if (
         tables.keys.toSet().difference(columns.keys.toSet()).isNotEmpty ||
         columns.keys.toSet().difference(tables.keys.toSet()).isNotEmpty) {
@@ -184,11 +239,12 @@ class BackupSnapshot {
       }).toList();
     }
     final snap = BackupSnapshot._(decoded['createdAt'] as String, rows);
-    snap.validateAccounting();
+    try { snap.validateAccounting(); } on ArgumentError catch (e) { throw FormatException('备份数值无效：${e.message}'); }
     return snap;
   }
 
   void validateAccounting() {
+    PaymentRequestSchema.validate(rows);
     final customers = <int>{};
     final products = <int>{};
     final sales = <int, Map<String, Object?>>{};
@@ -259,8 +315,10 @@ class BackupSnapshot {
       if (amount != BillingMath.lineCents(length, width, price)) {
         throw const FormatException('明细金额与计价公式不一致');
       }
-      amounts[saleId] = (amounts[saleId] ?? 0) + amount;
-      linesCount[saleId] = (linesCount[saleId] ?? 0) + 1;
+      if (!rows['sale_line_origins']!.any((o) => o['sale_line_id'] == row['id'])) {
+        amounts[saleId] = SafeInt.add((amounts[saleId] ?? 0), amount);
+        linesCount[saleId] = (linesCount[saleId] ?? 0) + 1;
+      }
     }
     for (final sale in sales.entries) {
       if (linesCount[sale.key] == null ||
@@ -275,14 +333,38 @@ class BackupSnapshot {
       requireText(row['method'], '收款方式');
       requireText(row['remark'], '收款备注');
       requireText(row['created_at'], '收款日期');
-      payments[saleId] = (payments[saleId] ?? 0) + (row['amount_cents'] as int);
+      payments[saleId] = SafeInt.add(payments[saleId] ?? 0, row['amount_cents'] as int);
     }
     for (final sale in sales.entries) {
       final sub = sale.value['subtotal_cents'] as int;
       final discount = sale.value['discount_cents'] as int;
-      if ((payments[sale.key] ?? 0) > sub - discount) {
+      if (!rows['sale_revisions']!.any((r) => r['sale_id'] == sale.key && (r['version'] as int) > 0) &&
+          (payments[sale.key] ?? 0) > sub - discount) {
         throw const FormatException('销售单收款金额超过合同金额');
       }
+    }
+    final creditKeys = <String>{};
+    final creditBalances = <int, BigInt>{};
+    final entries = [...rows['customer_credit_entries']!]
+      ..sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
+    for (final entry in entries) {
+      final customer = positiveId(entry['customer_id'], '余额客户');
+      if (!customers.contains(customer) || !sales.containsKey(entry['sale_id'])) {
+        throw const FormatException('余额流水关联不存在');
+      }
+      final delta = entry['delta_cents'];
+      final key = entry['request_key'];
+      if (delta is! int || delta == 0 || key is! String ||
+          key.length < 12 || key.length > 128 || !creditKeys.add(key) ||
+          entry['reason'] is! String || (entry['reason'] as String).trim().isEmpty ||
+          entry['created_at'] is! String) {
+        throw const FormatException('余额流水内容无效');
+      }
+      final balance = (creditBalances[customer] ?? BigInt.zero) + BigInt.from(delta);
+      if (balance.isNegative || balance > BigInt.from(9223372036854775807)) {
+        throw const FormatException('余额流水透支或溢出');
+      }
+      creditBalances[customer] = balance;
     }
     final supplierIds = <int>{};
     final supplierNames = <String>{};
@@ -346,7 +428,7 @@ class BackupSnapshot {
       if (amount != BillingMath.lineCents(len, width, cost)) {
         throw const FormatException('采购金额与面积计算不一致');
       }
-      poSums[poId] = (poSums[poId] ?? 0) + amount;
+      poSums[poId] = SafeInt.add((poSums[poId] ?? 0), amount);
       poLineCount[poId] = (poLineCount[poId] ?? 0) + 1;
     }
     for (final po in poMap.entries) {
@@ -406,10 +488,10 @@ class BackupSnapshot {
           source.length != 1 || source.single['purchase_order_id'] != receiptIds[receiptId] ||
           !warehouseIds.contains(whId) ||
           !usedReceiptPoLine.add('$receiptId:$poLineId') ||
-          source.single['width_milli'] != width || length * width != area) {
+          source.single['width_milli'] != width || BillingMath.areaMicro(length, width) != area) {
         throw const FormatException('收货明细引用或面积不合法');
       }
-      receivedLengths[poLineId] = (receivedLengths[poLineId] ?? 0) + length;
+      receivedLengths[poLineId] = SafeInt.add(receivedLengths[poLineId] ?? 0, length);
       receiptLines[id] = row;
     }
     for (final row in rows['purchase_lines']!) {
@@ -449,6 +531,9 @@ class BackupSnapshot {
       }
     }
 
+    RefundSnapshotValidator.validate(rows);
+    SaleCreditSnapshotValidator.validate(rows);
+    SaleRevisionSnapshotValidator.validate(rows);
     FulfillmentSnapshotValidator.validate(rows);
     FinanceSnapshotValidator.validate(rows);
 

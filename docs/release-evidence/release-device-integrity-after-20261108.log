@@ -1,0 +1,5 @@
+android.widget.Button '' 'Back' [12,122][156,266]
+android.view.View '' '数据检查' [421,157][659,232]
+android.view.View '' '只检查金额、关联、余额和当前库存商品标识，不修改原单据。' [48,326][1032,464]
+android.view.View '' '本次检查未发现异常。仍需定期备份并核对实际收付款。' [48,512][1032,650]
+android.widget.Button '' '重新检查' [48,650][1032,818]

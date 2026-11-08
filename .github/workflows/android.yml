@@ -26,8 +26,6 @@ jobs:
           channel: stable
           flutter-version: '3.47.9'
           cache: true
-      - name: Generate native Android runner (no overwrite of Dart code)
-        run: flutter create --platforms=android --project-name kaibao_sales --org com.kaibao .
       - name: Get locked dependencies
         run: |
           flutter pub get --enforce-lockfile

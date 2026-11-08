@@ -1,3 +1,4 @@
+import 'legacy_refund_fixture.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -220,6 +221,12 @@ void main() {
     final oldDue = (await db.saleById(sale))!.currentDueCents;
     await db.close();
     final old = await databaseFactoryFfi.openDatabase(path);
+    for (final table in ['payment_requests', 'sale_creation_requests', 'sale_credit_events',
+        'sale_dispatch_contexts', 'sale_payment_contexts',
+        'sale_line_origins', 'sale_revisions']) {
+      await old.execute('DROP TABLE $table');
+    }
+    await old.execute('DROP TABLE customer_credit_entries');
     await old.execute('DROP TABLE day_closures');
     await old.execute('DROP TABLE cash_entries');
     await old.execute('DROP INDEX idx_payments_created_at');
@@ -228,7 +235,7 @@ void main() {
       'sale_dispatch_lines','sale_dispatches']) {
       await old.execute('DROP TABLE $table');
     }
-    await old.setVersion(4);
+    await removeRefundDatabaseTables(old); await old.setVersion(4);
     await old.close();
 
     final migrated = AppDatabase.forTesting(factory: databaseFactoryFfi, databasePath: path);
@@ -273,8 +280,14 @@ void main() {
 
     // Construct the shape of a real v4 archive without any fulfillment data.
     final old = jsonDecode(json) as Map<String, dynamic>;
+    removeRefundArchiveTables(old);
     old['schemaVersion'] = 4;
     final tables = old['tables'] as Map<String, dynamic>;
+    for (final table in ['payment_requests', 'sale_creation_requests', 'sale_credit_events',
+        'sale_dispatch_contexts', 'sale_payment_contexts',
+        'sale_line_origins', 'sale_revisions', 'customer_credit_entries']) {
+      tables.remove(table);
+    }
     for (final table in ['sale_dispatches','sale_dispatch_lines',
       'sale_returns','sale_return_lines','cash_entries','day_closures']) { tables.remove(table); }
     expect(BackupSnapshot.parse(jsonEncode(old)).counts['sale_returns'], 0);

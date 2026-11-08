@@ -1,0 +1,34 @@
+00:00 +0: loading /home/jqs/Workspace/Projects/kaibao-erp/test/release_storage_test.dart
+00:00 +0: (setUpAll)
+00:00 +0: v6→v7 保留销售、收款及客户欠款并创建余额表
+00:00 +1: v7余额流水经加密备份、空库恢复和重启后逐表一致
+00:01 +2: v7迁移遇到冲突失败后版本、销售及收款仍保留
+error SqfliteFfiException(sqlite_error: 1, , SqliteException(1): while executing, table customer_credit_entries already exists, SQL logic error (code 1)
+  Causing statement (at position 13): CREATE TABLE customer_credit_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL REFERENCES customers(id),
+      sale_id INTEGER NOT NULL REFERENCES sales(id),
+      request_key TEXT NOT NULL UNIQUE,
+      delta_cents INTEGER NOT NULL CHECK(delta_cents != 0),
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    ), parameters: }) DatabaseException(SqliteException(1): while executing, table customer_credit_entries already exists, SQL logic error (code 1)
+  Causing statement (at position 13): CREATE TABLE customer_credit_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL REFERENCES customers(id),
+      sale_id INTEGER NOT NULL REFERENCES sales(id),
+      request_key TEXT NOT NULL UNIQUE,
+      delta_cents INTEGER NOT NULL CHECK(delta_cents != 0),
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    ), parameters: ) sql 'CREATE TABLE customer_credit_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL REFERENCES customers(id),
+      sale_id INTEGER NOT NULL REFERENCES sales(id),
+      request_key TEXT NOT NULL UNIQUE,
+      delta_cents INTEGER NOT NULL CHECK(delta_cents != 0),
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )' {details: {database: {path: /tmp/kaibao-release-storage-LEGRHZ/source.db, id: 7, readOnly: false, singleInstance: true}}} during open, closing...
+00:01 +3: (tearDownAll)
+00:01 +3: All tests passed!

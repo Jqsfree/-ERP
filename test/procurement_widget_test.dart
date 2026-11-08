@@ -103,7 +103,7 @@ class MemoryProcurementStore implements ProcurementStore, SalesStore {
 
   @override
   Future<void> addPayment(Sale sale, int amountCents,
-    {String method = '其他'}) async => throw UnimplementedError();
+    {required String requestKey, String method = '其他'}) async => throw UnimplementedError();
 
   @override
   Future<void> saveDraft(String jsonPayload) async {}

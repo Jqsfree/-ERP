@@ -8,7 +8,11 @@
 build/
 coverage/
 flutter/
-android/
+android/.gradle/
+android/local.properties
+android/key.properties
+android/app/*.jks
+android/app/*.keystore
 ios/
 linux/
 macos/
@@ -22,3 +26,6 @@ web/
 *.jks
 key.properties
 .DS_Store
+
+# FVM Version Cache
+.fvm/

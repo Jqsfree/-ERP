@@ -61,7 +61,8 @@ class FinanceRepository implements FinanceStore {
     final entries = await tx.query('cash_entries',
       columns: ['kind', 'business_date', 'amount_cents', 'direction', 'method'],
       where: 'business_date = ?', whereArgs: [day]);
-    return FinanceMath.statement(day, payments, entries);
+    final refunds = await tx.query('sale_refund_events', where: 'SUBSTR(created_at,1,10)=?', whereArgs: [day]);
+    return FinanceMath.statement(day, payments, entries, refunds: refunds);
   }
 
   static DayClose _readClose(Map<String, Object?> row) {
@@ -250,6 +251,7 @@ class FinanceRepository implements FinanceStore {
         'expected_json': jsonEncode(expected),
         'actual_json': jsonEncode(counted),
         'variance_reason': reason, 'created_at': now.toIso8601String(),
+        'refund_cutoff': (await tx.rawQuery('SELECT COALESCE(MAX(id),0) AS n FROM sale_refund_events')).single['n'],
       });
     });
   }

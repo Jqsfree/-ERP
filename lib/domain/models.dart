@@ -1,3 +1,4 @@
+import 'safe_int.dart';
 import 'money.dart';
 
 class Customer {
@@ -32,6 +33,8 @@ class Product {
 }
 
 class SaleLine {
+  /// Stable persisted line identity. New, unsaved lines have no ID.
+  final int? id;
   final int? productId;
   final String code;
   final String specification;
@@ -40,7 +43,7 @@ class SaleLine {
   final int unitPriceCents;
   final String note;
 
-  const SaleLine({this.productId, required this.code, this.specification = '',
+  const SaleLine({this.id, this.productId, required this.code, this.specification = '',
     required this.lengthMilli, required this.widthMilli, required this.unitPriceCents,
     this.note = ''});
 
@@ -49,6 +52,7 @@ class SaleLine {
   String get areaText => Fixed.format(areaMicro, decimals: 6, trim: true);
 
   factory SaleLine.fromMap(Map<String, Object?> m) => SaleLine(
+    id: m['id'] as int?,
     productId: m['product_id'] as int?, code: m['code_snapshot'] as String,
     specification: m['spec_snapshot'] as String? ?? '',
     lengthMilli: m['length_milli'] as int,
@@ -59,6 +63,7 @@ class SaleLine {
 }
 
 class Sale {
+  final int revision;
   final int id;
   final String number;
   final String date;
@@ -70,17 +75,24 @@ class Sale {
   final int discountCents;
   final int priorDueCents;
   final int receivedCents;
+  final int creditAppliedCents;
+  final int transferredCents;
+  final int refundedCents;
   final String status;
   final String note;
   final List<SaleLine> lines;
 
-  const Sale({required this.id, required this.number, required this.date,
+  const Sale({this.revision = 0, required this.id, required this.number, required this.date,
     required this.customerId, required this.customerName, required this.customerPhone,
     required this.customerAddress, required this.subtotalCents, required this.discountCents,
     required this.priorDueCents, required this.receivedCents,
+    this.creditAppliedCents = 0, this.transferredCents = 0, this.refundedCents = 0,
     required this.status, required this.note, required this.lines});
 
   int get payableCents => subtotalCents - discountCents;
-  int get currentDueCents => payableCents - receivedCents;
-  int get cumulativeDueCents => priorDueCents + currentDueCents;
+  int get netReceivedCents => receivedCents - transferredCents - refundedCents;
+  int get settledCents => SafeInt.add(netReceivedCents, creditAppliedCents);
+  int get currentDueCents => payableCents > settledCents ? payableCents - settledCents : 0;
+  int get overpaidCents => netReceivedCents > payableCents ? netReceivedCents - payableCents : 0;
+  int get cumulativeDueCents => SafeInt.add(priorDueCents, currentDueCents);
 }

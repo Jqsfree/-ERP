@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaibao_sales/application/sales_store.dart';
@@ -69,7 +70,7 @@ class _InMemorySalesStore implements SalesStore {
   }
 
   @override
-  Future<void> addPayment(Sale sale, int amountCents, {String method = '其他'}) async {
+  Future<void> addPayment(Sale sale, int amountCents, {required String requestKey, String method = '其他'}) async {
     final index = _sales.indexWhere((s) => s.id == sale.id);
     final prior = _sales[index];
     _sales[index] = Sale(id: prior.id, number: prior.number, date: prior.date,
@@ -91,6 +92,50 @@ class _InMemorySalesStore implements SalesStore {
 }
 
 void main() {
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(const MethodChannel('kaibao/image_album'), (call) async => {'saved': (call.arguments as Map)['indices'], 'error': null});
+  });
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(const MethodChannel('kaibao/image_album'), null);
+  });
+  testWidgets('首页常用入口和无客户开单引导、草稿恢复与校验', (tester) async {
+    final store = _InMemorySalesStore();
+    await tester.pumpWidget(DatabaseScope(database: store,
+      child: const MaterialApp(home: HomePage())));
+    await tester.pumpAndSettle();
+    expect(find.text('快速开单'), findsOneWidget);
+    expect(find.text('找单／保存图片'), findsOneWidget);
+    await tester.tap(find.text('快速开单'));
+    await tester.pumpAndSettle();
+    expect(find.text('尚无客户，请先新增客户。'), findsOneWidget);
+    await tester.tap(find.text('新增客户'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextFormField, '客户名称 *'), '新客户');
+    await tester.tap(find.text('保存').last);
+    await tester.pumpAndSettle();
+    expect(find.text('新客户'), findsOneWidget);
+    await tester.tap(find.text('下一步'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextFormField, '产品型号 *'), '手填产品');
+    await tester.pump(const Duration(seconds: 1));
+    await tester.tap(find.text('返回'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('快速开单'));
+    await tester.pumpAndSettle();
+    expect(find.text('手填产品'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('下一步'), 250,
+      scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('下一步'));
+    await tester.pumpAndSettle();
+    expect(await store.sales(), isEmpty);
+    await tester.scrollUntilVisible(find.widgetWithText(TextFormField, '米数 *'), -200,
+      scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
+    expect(find.text('请填写米数'), findsOneWidget);
+  });
+
   testWidgets('表单输入客户、产品及销售单，输出与 Application Port 一致',
       (tester) async {
     final store = _InMemorySalesStore();
@@ -125,6 +170,8 @@ void main() {
     await tester.tap(find.text('客户A').last);
     await tester.pumpAndSettle();
 
+    await tester.tap(find.text('下一步'));
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.byType(DropdownButtonFormField<int>).last);
     await tester.tap(find.byType(DropdownButtonFormField<int>).last);
     await tester.pumpAndSettle();
@@ -132,6 +179,8 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.widgetWithText(TextFormField, '米数 *'), '37');
+    await tester.tap(find.text('下一步'));
+    await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.widgetWithText(TextFormField, '优惠金额（元）'), 200.0,
       scrollable: find.byType(Scrollable).first);
@@ -140,9 +189,9 @@ void main() {
       find.widgetWithText(TextFormField, '开单已收款（元）'), 200.0,
       scrollable: find.byType(Scrollable).first);
     await tester.enterText(find.widgetWithText(TextFormField, '开单已收款（元）'), '500');
-    await tester.scrollUntilVisible(find.text('确认销售并保存'), 200.0,
+    await tester.scrollUntilVisible(find.text('确认开单并保存图片'), 200.0,
       scrollable: find.byType(Scrollable).first);
-    await tester.tap(find.text('确认销售并保存'));
+    await tester.tap(find.text('确认开单并保存图片'));
     await tester.pumpAndSettle();
 
     final sales = await store.sales();
@@ -151,7 +200,8 @@ void main() {
     expect(sales.single.payableCents, 144900);
     expect(sales.single.receivedCents, 50000);
     expect(sales.single.lines.single.areaText, '103.6');
+    expect(find.text('销售单保存成功'), findsOneWidget);
     expect(find.text('NO.XS202611060001'), findsOneWidget);
-    expect(find.text('¥1449.00'), findsWidgets);
+    expect(find.textContaining('合同金额 ¥1449.00'), findsOneWidget);
   });
 }

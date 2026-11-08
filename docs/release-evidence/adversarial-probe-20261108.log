@@ -1,0 +1,35 @@
+Resolving dependencies...
+Downloading packages...
+  code_assets 1.2.1 (2.2.0 available)
+  cross_file 0.3.5+5 (0.4.0 available)
+  flutter_lints 5.0.0 (6.0.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  lints 5.1.1 (6.1.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  native_toolchain_c 0.19.2 (0.19.6 available)
+  objective_c 9.5.0 (9.6.3 available)
+  petitparser 7.0.2 (7.1.0 available)
+  qr 3.0.3 (4.0.1 available)
+  record_use 0.6.0 (1.1.1 available)
+  sqlite3 3.5.2 (3.9.0 available)
+  test_api 0.7.12 (0.7.15 available)
+  vector_math 2.4.0 (2.4.4 available)
+  xml 7.0.1 (7.1.0 available)
+Got dependencies!
+16 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /home/jqs/Workspace/Projects/kaibao-erp/docs/release-evidence/adversarial-probe-20261108.dart
+00:00 +0: (setUpAll)
+00:00 +0: PROBE decimal overflow is silently accepted in saved sale
+DECIMAL_OVERFLOW input=184467440737095516.17 parsedCents=1 savedPayable=1
+00:00 +1: PROBE purchase and receipt area wrap into positive stored integers
+PROCUREMENT_OVERFLOW total=858993 storedArea=8589934593 exactArea=18446744082299486209
+OVERFLOW_BACKUP_RESTORE storedArea=8589934593
+00:00 +2: PROBE same payment retried is recorded twice when sufficient due remains
+PAYMENT_REPLAY count=2 paid=4000
+00:00 +3: PROBE contradictory catalog code remains linked to original stock product
+CATALOG_MISMATCH displayedCode=B stockProductId=1 catalogCode=A
+MISMATCH_ACTUAL_DISPATCH productId=1 area=1000000 printedSaleCode=B
+00:00 +4: (tearDownAll)
+00:00 +4: All tests passed!

@@ -120,7 +120,7 @@ class FinanceSnapshotValidator {
       }
       final expected = decodeAmounts('expected_json');
       final actual = decodeAmounts('actual_json');
-      final recomputed = FinanceMath.statement(day, payments, cash).expectedNetByMethod;
+      final recomputed = FinanceMath.statement(day, payments, cash, refunds: rows['sale_refund_events'] ?? []).expectedNetByMethod;
       if (jsonEncode(recomputed) != row['expected_json'] ||
           actual.keys.toSet().difference(recomputed.keys.toSet()).isNotEmpty ||
           recomputed.keys.toSet().difference(actual.keys.toSet()).isNotEmpty) {

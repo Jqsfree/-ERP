@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../application/fulfillment_store.dart';
 import '../domain/fulfillment.dart';
+import 'sale_revision_repository.dart';
 
 /// All stock-affecting writes use a single SQLite transaction and a shared
 /// ledger view. Repositories never directly update a mutable balance cache.
@@ -57,21 +58,21 @@ class FulfillmentRepository implements FulfillmentStore {
 
   @override
   Future<List<DispatchLineProgress>> dispatchableLines(int saleId) async {
-    final rows = await db.rawQuery('''
-      SELECT sl.id AS line_id, sl.product_id, sl.code_snapshot,
-        sl.length_milli, sl.width_milli,
-        COALESCE((SELECT SUM(dl.length_milli)
-          FROM sale_dispatch_lines dl WHERE dl.sale_line_id=sl.id), 0) AS shipped
-      FROM sale_lines sl WHERE sl.sale_id=? ORDER BY sl.id
-    ''', [saleId]);
-    return rows.map((r) => DispatchLineProgress(
-      lineId: r['line_id'] as int,
-      productId: r['product_id'] as int? ?? 0,
-      code: r['code_snapshot'] as String,
-      orderedLengthMilli: r['length_milli'] as int,
-      dispatchedLengthMilli: r['shipped'] as int,
-      widthMilli: r['width_milli'] as int,
-    )).toList();
+    return db.transaction((tx) async {
+      final snapshot = await SaleRevisionRepository.currentSnapshot(tx, saleId);
+      if (snapshot == null) return [];
+      final shipped = await tx.rawQuery('''SELECT dl.sale_line_id, SUM(dl.length_milli) AS n
+        FROM sale_dispatch_lines dl JOIN sale_dispatches d ON d.id=dl.dispatch_id
+        WHERE d.sale_id=? GROUP BY dl.sale_line_id''', [saleId]);
+      final totals = {for (final r in shipped) r['sale_line_id']: r['n'] as int};
+      return (snapshot['lines'] as List).map((raw) {
+        final r = raw as Map;
+        return DispatchLineProgress(lineId: r['id'] as int,
+          productId: r['product_id'] as int? ?? 0, code: r['code_snapshot'] as String,
+          orderedLengthMilli: r['length_milli'] as int,
+          dispatchedLengthMilli: totals[r['id']] ?? 0, widthMilli: r['width_milli'] as int);
+      }).toList();
+    });
   }
 
   @override
@@ -116,15 +117,20 @@ class FulfillmentRepository implements FulfillmentStore {
         throw StateError('销售单不存在或状态不允许出库');
       }
       final prepared = <({DispatchInputLine input, int productId, int width, int area})>[];
+      final snapshot = (await SaleRevisionRepository.currentSnapshot(tx, saleId))!;
+      final effective = {for (final raw in snapshot['lines'] as List)
+        (raw as Map)['id'] as int: raw};
       final available = <String, int>{};
       for (final input in normalized) {
-        final rows = await tx.query('sale_lines',
-          where: 'id=? AND sale_id=?', whereArgs: [input.saleLineId, saleId]);
-        if (rows.isEmpty) throw ArgumentError('出库明细不属于这张销售单');
-        final line = rows.single;
+        final line = effective[input.saleLineId];
+        if (line == null) throw ArgumentError('出库明细不属于当前有效销售版本');
         final productId = line['product_id'] as int?;
         if (productId == null) {
           throw StateError('此销售行没有库存产品 ID，必须先通过业务修订建立关联，不能猜测库存');
+        }
+        final catalog = await tx.query('products', where: 'id=?', whereArgs: [productId]);
+        if (catalog.isEmpty || catalog.single['code'] != line['code_snapshot']) {
+          throw StateError('销售行与当前库存商品标识不一致，请通过改单重新选择库存商品后出库。历史单据不会被自动改写。');
         }
         final wh = await tx.query('warehouses', columns: ['active'],
           where: 'id=?', whereArgs: [input.warehouseId]);
@@ -154,6 +160,10 @@ class FulfillmentRepository implements FulfillmentStore {
         'sale_id': saleId, 'request_key': key, 'payload': payload,
         'created_at': now.toIso8601String(), 'note': note.trim(),
       });
+      if ((snapshot['version'] as int) > 0) {
+        await tx.insert('sale_dispatch_contexts', {'dispatch_id': id,
+          'sale_id': saleId, 'version': snapshot['version']});
+      }
       for (final line in prepared) {
         await tx.insert('sale_dispatch_lines', {
           'dispatch_id': id, 'sale_line_id': line.input.saleLineId,

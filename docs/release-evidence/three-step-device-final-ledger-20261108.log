@@ -1,0 +1,7 @@
+android.widget.Button '' 'Back' [12,122][156,266]
+android.view.View '' '找单／保存图片' [332,157][748,232]
+android.widget.Button '' '刷新' [936,122][1080,266]
+android.view.View '' '共 1 单' [0,518][1080,686]
+android.widget.Button '' '导出订单与明细 CSV' [497,530][1008,674]
+android.widget.Button '' 'ACCEPTANCE-ONLY-20261108 · ¥56.00\nXS202611080001  2026-11-08\n未收\n¥36.00' [0,686][1080,947]
+android.widget.Button '' '新开单' [714,2136][1032,2242]

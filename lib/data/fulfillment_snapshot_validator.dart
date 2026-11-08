@@ -99,9 +99,27 @@ class FulfillmentSnapshotValidator {
       (dispatchGroups[dispatchId] ??= []).add(row);
       move(product, warehouse, batch, -area);
     }
-    for (final line in saleLines.values) {
-      if ((shipped[line['id']] ?? 0) > (line['length_milli'] as int)) {
-        throw const FormatException('出库超过原销售行订购米数');
+    // Replay each dispatch against the contract version used at posting.
+    // A later reduction may legitimately leave a physical return outstanding.
+    for (final line in dispatchLines.values) {
+      final did = line['dispatch_id'] as int;
+      final root = line['sale_line_id'] as int;
+      final contexts = rows['sale_dispatch_contexts']!.where((c) => c['dispatch_id'] == did);
+      Map? effective = saleLines[root];
+      if (contexts.isNotEmpty) {
+        final c = contexts.single;
+        final r = rows['sale_revisions']!.singleWhere((r) =>
+          r['sale_id'] == c['sale_id'] && r['version'] == c['version']);
+        final s = jsonDecode(r['snapshot'] as String) as Map;
+        final candidates = (s['lines'] as List).where((l) => (l as Map)['id'] == root);
+        effective = candidates.isEmpty ? null : candidates.single as Map;
+      } else if (rows['sale_line_origins']!.any((o) => o['sale_line_id'] == root)) {
+        effective = null;
+      }
+      final total = dispatchLines.values.where((l) => l['sale_line_id'] == root &&
+        (l['dispatch_id'] as int) <= did).fold<int>(0, (n,l) => n + (l['length_milli'] as int));
+      if (effective == null || total > (effective['length_milli'] as int)) {
+        throw const FormatException('出库超过当时有效销售版本订购米数');
       }
     }
     for (final dispatch in dispatches.values) {
