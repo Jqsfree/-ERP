@@ -1,0 +1,106 @@
+name: Verified signed Android candidate
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: 'Exact 40-character main commit SHA approved for candidate'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signed-release-candidate
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify main, exact commit and unused version
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo 'FAIL: candidate must run from main' >&2; exit 1; }
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'FAIL: expected_sha must be full lowercase SHA' >&2; exit 1; }
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]] || { echo 'FAIL: main HEAD does not match approved commit' >&2; exit 1; }
+          version="$(sed -nE 's/^version:[[:space:]]*([^[:space:]]+).*/\1/p' pubspec.yaml)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+[0-9]+$ ]] || { echo 'FAIL: invalid pubspec version' >&2; exit 1; }
+          version_name="$(printf '%s' "$version" | cut -d+ -f1)"
+          if git show-ref --tags --verify --quiet "refs/tags/v$version_name"; then
+            echo "FAIL: v$version_name already tagged; bump version before creating another release" >&2
+            exit 1
+          fi
+          printf 'SOURCE_SHA=%s\nSOURCE_VERSION=%s\n' "$EXPECTED_SHA" "$version" >> "$GITHUB_ENV"
+      - name: Check Flutter pin
+        run: grep -q '"flutter": "3.47.9"' .fvmrc
+      - name: Install pinned Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.9'
+          cache: true
+      - name: Locked dependencies
+        run: |
+          flutter pub get --enforce-lockfile
+          git diff --exit-code -- pubspec.lock
+      - name: Finance integration regression
+        run: flutter test test/finance_integration_test.dart --reporter expanded
+      - name: Entire Dart and Flutter test suite
+        run: flutter test --reporter expanded --coverage
+      - name: Static analysis
+        run: flutter analyze
+      - name: Prepare original signing key from protected secrets
+        env:
+          ANDROID_RELEASE_KEYSTORE_B64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_B64 }}
+          ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          for var in ANDROID_RELEASE_KEYSTORE_B64 ANDROID_RELEASE_STORE_PASSWORD ANDROID_RELEASE_KEY_ALIAS ANDROID_RELEASE_KEY_PASSWORD; do
+            [[ -n "${!var}" ]] || { echo "FAIL: missing required signing secret: $var" >&2; exit 1; }
+          done
+          umask 077
+          printf '%s' "$ANDROID_RELEASE_KEYSTORE_B64" | base64 --decode > android/app/release.jks
+          printf 'storeFile=release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$ANDROID_RELEASE_STORE_PASSWORD" "$ANDROID_RELEASE_KEY_ALIAS" "$ANDROID_RELEASE_KEY_PASSWORD" > android/key.properties
+      - name: Build signed release candidate
+        run: flutter build apk --release
+      - name: Verify signing certificate, v2 signature and source manifest
+        run: |
+          set -Eeuo pipefail
+          apk="build/app/outputs/flutter-apk/app-release.apk"
+          [[ -s "$apk" ]] || { echo 'FAIL: release APK missing' >&2; exit 1; }
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          [[ -n "$sdk" && -d "$sdk/build-tools" ]] || { echo 'FAIL: Android build-tools unavailable' >&2; exit 1; }
+          apksigner="$(find "$sdk/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          [[ -x "$apksigner" ]] || { echo 'FAIL: apksigner unavailable' >&2; exit 1; }
+          mkdir -p build/release-candidate
+          "$apksigner" verify --verbose --print-certs "$apk" > build/release-candidate/signature.txt
+          grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): true' build/release-candidate/signature.txt || {
+            echo 'FAIL: Android v2 signature missing' >&2; exit 1;
+          }
+          signer="$(awk '/Signer #1 certificate SHA-256 digest:/ {print $NF; exit}' build/release-candidate/signature.txt | tr '[:upper:]' '[:lower:]')"
+          expected='d5e48b89c69c2a9f10ad3944eaf8d87dce3dac40ee7c82e4528af9c42e7599ae'
+          [[ "$signer" == "$expected" ]] || { echo 'FAIL: signing certificate differs from installed v0.1.9' >&2; exit 1; }
+          cp "$apk" build/release-candidate/kaibao-sales-release.apk
+          (cd build/release-candidate && sha256sum kaibao-sales-release.apk > SHA256SUMS.txt)
+          printf 'commit=%s\nversion=%s\nsigning_cert_sha256=%s\n' "$SOURCE_SHA" "$SOURCE_VERSION" "$signer" > build/release-candidate/SOURCE.txt
+      - name: Upload verified release candidate (not a public release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-signed-android-candidate
+          path: |
+            build/release-candidate/kaibao-sales-release.apk
+            build/release-candidate/SHA256SUMS.txt
+            build/release-candidate/SOURCE.txt
+            build/release-candidate/signature.txt
+          if-no-files-found: error
+          retention-days: 14
