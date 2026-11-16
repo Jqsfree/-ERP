@@ -28,58 +28,90 @@ class KaibaoStartup extends StatefulWidget {
 }
 
 class _KaibaoStartupState extends State<KaibaoStartup> {
-  late Future<void> _initialization;
+  Object? _error;
+  bool _loading = true;
+  bool _ready = false;
+  int _attempt = 0;
 
   @override
   void initState() {
     super.initState();
-    _initialization = widget.initialize();
+    _start();
+  }
+
+  void _start() {
+    final current = ++_attempt;
+    // Explicitly own the startup state. Replacing a completed, failed
+    // FutureBuilder<void> future can leave the old error route visible.
+    Future<void>.sync(widget.initialize).then(
+      (_) {
+        if (!mounted || current != _attempt) return;
+        setState(() {
+          _ready = true;
+          _loading = false;
+          _error = null;
+        });
+      },
+      onError: (Object error, StackTrace stack) {
+        if (!mounted || current != _attempt) return;
+        setState(() {
+          _ready = false;
+          _loading = false;
+          _error = error;
+        });
+      },
+    );
   }
 
   void _retry() {
-    setState(() => _initialization = widget.initialize());
+    if (_loading) return;
+    setState(() {
+      _error = null;
+      _ready = false;
+      _loading = true;
+    });
+    _start();
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<void>(
-    future: _initialization,
-    builder: (context, snapshot) {
-      if (snapshot.connectionState == ConnectionState.done && !snapshot.hasError) {
-        // Force a fresh MaterialApp/Navigator when leaving the error screen;
-        // reusing the old MaterialApp State retains its previous home route.
-        return KeyedSubtree(key: const ValueKey('database-ready'), child: widget.ready);
-      }
-      return KeyedSubtree(key: const ValueKey('database-initializing'), child: MaterialApp(
-        title: '凯堡软装 · 启动',
-        home: Scaffold(
-          body: SafeArea(child: Center(child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.storage_outlined, size: 48),
+  Widget build(BuildContext context) {
+    if (_ready) {
+      return KeyedSubtree(
+        key: const ValueKey('database-ready'),
+        child: widget.ready,
+      );
+    }
+    return MaterialApp(
+      key: const ValueKey('database-initializing'),
+      title: '凯堡软装 · 启动',
+      home: Scaffold(
+        body: SafeArea(child: Center(child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.storage_outlined, size: 48),
+                const SizedBox(height: 16),
+                Text(_error != null ? '本地数据库无法打开' : '正在检查本地数据库',
+                  style: const TextStyle(fontSize: 22)),
+                const SizedBox(height: 16),
+                if (_error != null) ...[
+                  const Text('数据没有被自动删除或重置。请勿卸载应用、清除数据或覆盖数据库。'
+                    '检查手机剩余空间后可以重试；仍失败时应保留原数据并记录错误。'),
                   const SizedBox(height: 16),
-                  Text(snapshot.hasError ? '本地数据库无法打开' : '正在检查本地数据库',
-                    style: const TextStyle(fontSize: 22)),
-                  const SizedBox(height: 16),
-                  if (snapshot.hasError) ...[
-                    const Text('数据没有被自动删除或重置。请勿卸载应用、清除数据或覆盖数据库。'
-                      '检查手机剩余空间后可以重试；仍失败时应保留原数据并记录错误。'),
-                    const SizedBox(height: 16),
-                    SelectableText('错误信息：${snapshot.error}'),
-                    const SizedBox(height: 24),
-                    FilledButton(onPressed: _retry, child: const Text('重试打开数据库')),
-                  ] else const CircularProgressIndicator(),
-                ],
-              ),
+                  SelectableText('错误信息：$_error'),
+                  const SizedBox(height: 24),
+                  FilledButton(onPressed: _retry, child: const Text('重试打开数据库')),
+                ] else const CircularProgressIndicator(),
+              ],
             ),
-          ))),
-        ),
-      ));
-    },
-  );
+          ),
+        ))),
+      ),
+    );
+  }
 }
 
 class KaibaoApp extends StatelessWidget {
