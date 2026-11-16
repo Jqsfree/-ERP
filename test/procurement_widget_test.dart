@@ -98,7 +98,7 @@ class MemoryProcurementStore implements ProcurementStore, SalesStore {
   Future<int> createSale({
     required Customer customer, required List<SaleLine> lines,
     required int discountCents, required int initialReceivedCents,
-    String note = '',
+    String initialPaymentMethod = '其他', String note = '',
   }) async => throw UnimplementedError();
 
   @override
