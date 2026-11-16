@@ -56,7 +56,8 @@ class _InMemorySalesStore implements SalesStore {
 
   @override
   Future<int> createSale({required Customer customer, required List<SaleLine> lines,
-    required int discountCents, required int initialReceivedCents, String note = ''}) async {
+    required int discountCents, required int initialReceivedCents,
+    String initialPaymentMethod = '其他', String note = ''}) async {
     final subtotal = lines.fold<int>(0, (sum, row) => sum + row.totalCents);
     final id = _sales.length + 1;
     _sales.add(Sale(id: id, number: 'XS202611060001', date: '2026-11-06',
