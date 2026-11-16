@@ -12,7 +12,7 @@
 2. 在 `main` 更新 `pubspec.yaml` 的 **versionName 和 versionCode**，不得复用已存在的 `v0.1.9` 标签/包版本。保持对已安装版本的升级兼容。
 3. 在仓库 Actions 运行 **Verified signed Android candidate**，分支选择 `main`，输入经过核对的完整 40 位 SHA。
 4. 工作流先核对源码、版本、锁定依赖，再重新执行财务回归、全量测试、静态分析。**任一步失败都不会生成正式候选 APK**。
-5. 签名材料必须来自 GitHub Secrets（与既有安装包使用相同的私钥/证书）。工作流通过 `apksigner` 检查 APK v2 签名，并与已有 v0.1.9 的证书指纹比对；不匹配时终止。
+5. 签名材料必须来自 GitHub Secrets（与既有安装包使用相同的私钥/证书）。工作流通过 `apksigner` 检查 APK v2 签名，并与已有 v0.1.9 的证书指纹比对；通过 `aapt` 检查打包后的 applicationId、versionName、versionCode 与源码版本一致；任一不匹配即终止。
 6. 仅上传私有工作流 Artifact：APK、SHA256SUMS.txt、SOURCE.txt、签名校验输出。候选通过不等于上线；Android 真实设备覆盖升级、重启、金额/余额/退款/库存核账、外部备份恢复和界面操作仍需要独立记录。
 7. 最终人工核对候选 APK 与工作流 Artifact 的 SHA256 完全一致，验收 GO 后才能使用新版本号创建 GitHub Release。不得先创建 Release 再等待 CI。
 
