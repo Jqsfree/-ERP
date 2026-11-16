@@ -15,6 +15,7 @@ abstract interface class SalesStore {
     required List<SaleLine> lines,
     required int discountCents,
     required int initialReceivedCents,
+    String initialPaymentMethod = '其他',
     String note = '',
   });
   Future<void> addPayment(Sale sale, int amountCents, {required String requestKey, String method = '其他'});
