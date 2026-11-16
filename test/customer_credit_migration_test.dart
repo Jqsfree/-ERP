@@ -61,7 +61,9 @@ void main() {
             expect(await check.rawQuery("SELECT name FROM sqlite_master WHERE name='sale_credit_events'"), isEmpty);
             expect(await check.rawQuery('PRAGMA integrity_check'), [{'integrity_check':'ok'}]);
           } finally { await check.close(); }
-          await expectLater(db.close(), throwsA(isA<DatabaseException>()));
+          // A failed open is now retryable; close must remain safe and read-only.
+          await expectLater(db.db, throwsA(isA<DatabaseException>()));
+          await db.close();
         } else {
           final upgraded = await db.db;
           expect(await upgraded.getVersion(), AppDatabase.schemaVersion);
