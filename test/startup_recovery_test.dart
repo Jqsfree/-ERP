@@ -22,6 +22,11 @@ void main() {
 
     await tester.tap(find.text('重试打开数据库'));
     await tester.pumpAndSettle();
+    debugPrint('STARTUP_RETRY_AFTER_SETTLE ready=${find.text('已进入业务').evaluate().length} loading=${find.text('正在检查本地数据库').evaluate().length} error=${find.text('本地数据库无法打开').evaluate().length}');
+    // Flush the completion of an immediately returning Future in FakeAsync.
+    await tester.pump();
+    await tester.pumpAndSettle();
+    debugPrint('STARTUP_RETRY_AFTER_PUMP ready=${find.text('已进入业务').evaluate().length} loading=${find.text('正在检查本地数据库').evaluate().length} error=${find.text('本地数据库无法打开').evaluate().length}');
     expect(attempts, 2);
     expect(find.text('已进入业务'), findsOneWidget);
     expect(find.text('本地数据库无法打开'), findsNothing);
