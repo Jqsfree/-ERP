@@ -19,7 +19,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final temp = (await tester.runAsync(() => Directory.systemTemp.createTemp('kaibao-revision-editor-')))!;
-    final db = AppDatabase.forTesting(factory: databaseFactoryFfi, databasePath: p.join(temp.path, 'book.db'));
+    final db = AppDatabase.forTesting(factory: databaseFactoryFfiNoIsolate, databasePath: p.join(temp.path, 'book.db'));
     Future<void> settle() async {
       await tester.pump();
       for (var i = 0; i < 100; i++) {
