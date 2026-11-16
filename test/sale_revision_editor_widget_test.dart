@@ -12,6 +12,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
   testWidgets('真实DB+UI：加行提价增量、删行、连续改单、重复点击与保存失败重试', (tester) async {
+    debugPrint('REV_EDITOR_STAGE 00: test started');
     sqfliteFfiInit();
     tester.view.physicalSize = const Size(1200, 4000);
     tester.view.devicePixelRatio = 1;
@@ -39,14 +40,17 @@ void main() {
             widthMilli: 2000, unitPriceCents: 1000)), discountCents: 0, initialReceivedCents: 1000);
         return db.saleById(id);
       }))!;
+      debugPrint('REV_EDITOR_STAGE 01: fixtures created');
       await tester.pumpWidget(DatabaseScope(database: db,
         child: MaterialApp(home: SaleDetailPage(sale: sale))));
       await settle();
+      debugPrint('REV_EDITOR_STAGE 02: initial sale detail ready');
       await tester.scrollUntilVisible(find.text('更多操作'), 250, scrollable: find.byType(Scrollable).first);
       await tester.tap(find.text('更多操作'));
       await settle();
       await tester.tap(find.text('修改已确认销售单'));
       await settle();
+      debugPrint('REV_EDITOR_STAGE 03: first editor ready');
       await tester.enterText(find.widgetWithText(TextFormField, '米数 *').first, '2');
       await tester.enterText(find.widgetWithText(TextFormField, '单价（元/㎡）*').first, '12');
       await tester.tap(find.text('新增一行产品'));
@@ -59,10 +63,12 @@ void main() {
       // The second pointer event is intentionally blocked by the saving overlay.
       await tester.tap(save, warnIfMissed: false);
       await settle();
+      debugPrint('REV_EDITOR_STAGE 04: first confirmation ready');
       expect(find.text('确认修改销售单'), findsOneWidget);
       expect(find.textContaining('金额差额 ¥30.80'), findsOneWidget);
       await tester.tap(find.text('确认保存修改'));
       await settle();
+      debugPrint('REV_EDITOR_STAGE 05: first revision saved');
       expect(find.text('版本 1（当前有效）'), findsOneWidget);
       final first = (await tester.runAsync(() => db.saleById(sale.id)))!;
       expect(first.payableCents, 7080);
@@ -74,12 +80,14 @@ void main() {
       await settle();
       await tester.tap(find.text('修改已确认销售单'));
       await settle();
+      debugPrint('REV_EDITOR_STAGE 06: second editor ready');
       await tester.tap(find.byTooltip('删除本行').first);
       await settle();
       await tester.tap(find.byType(DropdownButtonFormField<int>).first);
       await settle();
       await tester.tap(find.text('B').last);
       await settle();
+      debugPrint('REV_EDITOR_STAGE 07: second editor modified');
       final before = await tester.runAsync(() async {
         final snapshot = (jsonDecode(await db.exportSnapshotJson()) as Map)['tables'];
         await (await db.db).execute('''CREATE TRIGGER fail_editor_revision BEFORE INSERT ON sale_revisions
@@ -88,10 +96,12 @@ void main() {
       });
       await tester.tap(find.text('核对并保存修改'));
       await settle();
+      debugPrint('REV_EDITOR_STAGE 08: second confirmation ready');
       expect(find.textContaining('原客户已收待退 ¥10.00'), findsOneWidget);
       expect(find.textContaining('新客户应收 ¥22.80'), findsOneWidget);
       await tester.tap(find.text('确认保存修改'));
       await settle();
+      debugPrint('REV_EDITOR_STAGE 09: injected failure handled');
       expect(find.text('操作未完成'), findsOneWidget);
       expect(await tester.runAsync(() async => (jsonDecode(await db.exportSnapshotJson()) as Map)['tables']), before);
       await tester.tap(find.text('知道了'));
@@ -102,6 +112,7 @@ void main() {
       await settle();
       await tester.tap(find.text('确认保存修改'));
       await settle();
+      debugPrint('REV_EDITOR_STAGE 10: retried successfully');
       expect(find.text('版本 2（当前有效）'), findsOneWidget);
       final second = (await tester.runAsync(() => db.saleById(sale.id)))!;
       expect(second.payableCents, 2280);
@@ -112,6 +123,7 @@ void main() {
       expect((await tester.runAsync(() => db.saleRevisions(sale.id)))!.map((r) => r.sale.revision), [2, 1, 0]);
       expect(tester.takeException(), isNull);
     } finally {
+      debugPrint('REV_EDITOR_STAGE 99: cleanup');
       await tester.pumpWidget(const SizedBox());
       await tester.runAsync(() async { await db.close(); await temp.delete(recursive: true); });
     }
