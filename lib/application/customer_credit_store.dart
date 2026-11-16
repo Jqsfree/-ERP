@@ -6,5 +6,6 @@ abstract interface class CustomerCreditStore {
   Future<int> transferSaleRefundToCredit({required int saleId, required int expectedRevision,
     required int customerId, required int epoch, required int amountCents, required String requestKey});
   Future<int> createSaleWithCredit({required Customer customer, required List<SaleLine> lines,
-    required int discountCents, required int initialReceivedCents, required String requestKey, String note = ''});
+    required int discountCents, required int initialReceivedCents, required String requestKey,
+    String initialPaymentMethod = '其他', String note = ''});
 }

@@ -69,6 +69,56 @@ void main() {
     }
   });
 
+  test('首收渠道进入资金流水与日结；幂等重试不改变渠道', () async {
+    final customer = await addCustomer();
+    const key = 'opening-channel-request-0001';
+    final saleId = await db.createSaleWithCredit(
+      customer: customer, lines: [sampleLine()],
+      discountCents: 0, initialReceivedCents: 50000,
+      initialPaymentMethod: '微信', requestKey: key,
+    );
+    final same = await db.createSaleWithCredit(
+      customer: customer, lines: [sampleLine()],
+      discountCents: 0, initialReceivedCents: 50000,
+      initialPaymentMethod: '微信', requestKey: key,
+    );
+    expect(same, saleId);
+    final payments = await (await db.db).query('payments', where: 'sale_id=?',
+      whereArgs: [saleId]);
+    expect(payments, hasLength(1));
+    expect(payments.single['method'], '微信');
+    final statement = await db.dayStatement('2026-11-06');
+    expect(statement.expectedNetByMethod['微信'], 50000);
+    expect(statement.expectedNetByMethod['其他'], 0);
+
+    await expectLater(db.createSaleWithCredit(
+      customer: customer, lines: [sampleLine()],
+      discountCents: 0, initialReceivedCents: 50000,
+      initialPaymentMethod: '支付宝', requestKey: key,
+    ), throwsStateError);
+    await expectLater(db.createSale(
+      customer: customer, lines: [sampleLine()],
+      discountCents: 0, initialReceivedCents: 100,
+      initialPaymentMethod: '不存在的渠道',
+    ), throwsArgumentError);
+    expect((await db.sales()).length, 1);
+
+    await db.close();
+    final reopened = AppDatabase.forTesting(
+      factory: databaseFactoryFfi, databasePath: path,
+      clock: () => DateTime(2026, 11, 6, 10),
+    );
+    try {
+      expect((await reopened.db).isOpen, isTrue);
+      final persisted = await (await reopened.db).query(
+        'payments', where: 'sale_id=?', whereArgs: [saleId]);
+      expect(persisted.single['method'], '微信');
+      expect((await reopened.dayStatement('2026-11-06')).expectedNetByMethod['微信'], 50000);
+    } finally {
+      await reopened.close();
+    }
+  });
+
   test('事务回滚：产品外键失效时销售、明细与收款均不落库', () async {
     final customer = await addCustomer();
     await expectLater(

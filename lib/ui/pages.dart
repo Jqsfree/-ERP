@@ -400,6 +400,7 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
   final _scroll = ScrollController();
   final _discount = TextEditingController(text: '0');
   final _received = TextEditingController(text: '0');
+  String _initialPaymentMethod = '其他';
   final _note = TextEditingController();
   final _date = TextEditingController();
   late Sale? _original = widget.sale;
@@ -467,7 +468,8 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
       final old = List<_LineForm>.of(_lines);
       setState(() {
         _lines..clear()..add(_LineForm()); _customerId = null;
-        _discount.text = '0'; _received.text = '0'; _note.clear(); _restored = false; _step = 0;
+        _discount.text = '0'; _received.text = '0'; _initialPaymentMethod = '其他';
+        _note.clear(); _restored = false; _step = 0;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) { for (final line in old) { line.dispose(); } });
     } catch (e) { if (mounted) await _error(context, e); }
@@ -479,7 +481,8 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
 
   String _draftPayload() => jsonEncode({
     'schema': 1, 'step': _step, 'customerId': _customerId, 'discount': _discount.text,
-    'received': _received.text, 'note': _note.text,
+    'received': _received.text, 'initialPaymentMethod': _initialPaymentMethod,
+    'note': _note.text,
     'lines': _lines.map((line) => line.toDraftJson()).toList(),
   });
 
@@ -538,6 +541,9 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
         customers.any((c) => c.id == savedCustomer) ? savedCustomer : null;
     _discount.text = decoded['discount'] is String ? decoded['discount'] as String : '0';
     _received.text = decoded['received'] is String ? decoded['received'] as String : '0';
+    final savedMethod = decoded['initialPaymentMethod'];
+    _initialPaymentMethod = savedMethod is String && FinanceMath.methods.contains(savedMethod)
+        ? savedMethod : '其他';
     _note.text = decoded['note'] is String ? decoded['note'] as String : '';
   }
 
@@ -743,10 +749,12 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
         if (database is CustomerCreditStore) {
           id = await (database as CustomerCreditStore).createSaleWithCredit(customer: customer,
             lines: lines, discountCents: discount, initialReceivedCents: received,
+            initialPaymentMethod: _initialPaymentMethod,
             requestKey: _requestKey, note: _note.text);
         } else {
           id = await database.createSale(customer: customer, lines: lines,
-            discountCents: discount, initialReceivedCents: received, note: _note.text);
+            discountCents: discount, initialReceivedCents: received,
+            initialPaymentMethod: _initialPaymentMethod, note: _note.text);
         }
       }
       savedId = id;
@@ -857,6 +865,22 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
             } catch (_) { return '请输入有效收款金额'; }
           },
           onChanged: (_) { setState(() {}); _touchDraft(); }),
+        if (_original == null) ...[
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: _initialPaymentMethod,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: '开单首收渠道'),
+            items: FinanceMath.methods.map((method) => DropdownMenuItem(
+              value: method, child: Text(method))).toList(),
+            onChanged: (method) {
+              if (method == null) return;
+              setState(() => _initialPaymentMethod = method);
+              _touchDraft();
+            },
+          ),
+          const Text('未收首款时不生成收款流水。'),
+        ],
         const SizedBox(height: 12),
         TextFormField(controller: _note, decoration: const InputDecoration(labelText: '订单备注'),
           maxLines: 2, onChanged: (_) => _touchDraft()),

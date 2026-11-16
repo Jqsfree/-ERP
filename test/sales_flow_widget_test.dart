@@ -13,6 +13,7 @@ class _InMemorySalesStore implements SalesStore {
   final _products = <Product>[];
   final _sales = <Sale>[];
   String? _draft;
+  String? lastInitialPaymentMethod;
 
   @override
   Future<void> addCustomer(Customer customer) async {
@@ -56,7 +57,9 @@ class _InMemorySalesStore implements SalesStore {
 
   @override
   Future<int> createSale({required Customer customer, required List<SaleLine> lines,
-    required int discountCents, required int initialReceivedCents, String note = ''}) async {
+    required int discountCents, required int initialReceivedCents,
+    String initialPaymentMethod = '其他', String note = ''}) async {
+    lastInitialPaymentMethod = initialPaymentMethod;
     final subtotal = lines.fold<int>(0, (sum, row) => sum + row.totalCents);
     final id = _sales.length + 1;
     _sales.add(Sale(id: id, number: 'XS202611060001', date: '2026-11-06',
@@ -189,6 +192,12 @@ void main() {
       find.widgetWithText(TextFormField, '开单已收款（元）'), 200.0,
       scrollable: find.byType(Scrollable).first);
     await tester.enterText(find.widgetWithText(TextFormField, '开单已收款（元）'), '500');
+    await tester.scrollUntilVisible(find.byType(DropdownButtonFormField<String>), 200.0,
+      scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('微信').last);
+    await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.text('确认开单并保存图片'), 200.0,
       scrollable: find.byType(Scrollable).first);
     await tester.tap(find.text('确认开单并保存图片'));
@@ -199,6 +208,7 @@ void main() {
     expect(sales.single.number, 'XS202611060001');
     expect(sales.single.payableCents, 144900);
     expect(sales.single.receivedCents, 50000);
+    expect(store.lastInitialPaymentMethod, '微信');
     expect(sales.single.lines.single.areaText, '103.6');
     expect(find.text('销售单保存成功'), findsOneWidget);
     expect(find.text('NO.XS202611060001'), findsOneWidget);

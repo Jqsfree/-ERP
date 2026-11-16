@@ -60,7 +60,19 @@ class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerific
   final DateTime Function() _clock;
   Future<Database>? _opening;
 
-  Future<Database> get db => _opening ??= _open();
+  Future<Database> get db => _opening ??= _openTracked();
+
+  // A failed migration/open must not permanently cache a rejected Future:
+  // the read-only startup error screen can retry once the underlying fault
+  // (e.g. unavailable storage) is resolved, without deleting any data.
+  Future<Database> _openTracked() async {
+    try {
+      return await _open();
+    } catch (_) {
+      _opening = null;
+      rethrow;
+    }
+  }
 
   Future<Database> _open() async {
     final path = _databasePath ?? p.join(await getDatabasesPath(), 'kaibao_sales.db');
@@ -751,23 +763,31 @@ class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerific
 
   @override
   Future<int> createSaleWithCredit({required Customer customer, required List<SaleLine> lines,
-    required int discountCents, required int initialReceivedCents, required String requestKey, String note = ''}) =>
+    required int discountCents, required int initialReceivedCents, required String requestKey,
+    String initialPaymentMethod = '其他', String note = ''}) =>
     _createSale(customer: customer, lines: lines, discountCents: discountCents,
-      initialReceivedCents: initialReceivedCents, requestKey: requestKey, note: note);
+      initialReceivedCents: initialReceivedCents, requestKey: requestKey,
+      initialPaymentMethod: initialPaymentMethod, note: note);
 
   /// Creates a confirmed invoice in one SQLite transaction.
   /// Serial is allocated inside the transaction to prevent duplicate numbers.
   @override
   Future<int> createSale({required Customer customer, required List<SaleLine> lines,
-    required int discountCents, required int initialReceivedCents, String note = ''}) =>
+    required int discountCents, required int initialReceivedCents,
+    String initialPaymentMethod = '其他', String note = ''}) =>
     _createSale(customer: customer, lines: lines, discountCents: discountCents,
-      initialReceivedCents: initialReceivedCents, note: note);
+      initialReceivedCents: initialReceivedCents,
+      initialPaymentMethod: initialPaymentMethod, note: note);
 
   Future<int> _createSale({required Customer customer, required List<SaleLine> lines,
-    required int discountCents, required int initialReceivedCents, String? requestKey, String note = ''}) async {
+    required int discountCents, required int initialReceivedCents, String? requestKey,
+    String initialPaymentMethod = '其他', String note = ''}) async {
     lines = List.unmodifiable(lines);
     final key = requestKey?.trim();
     if (key != null && (key.length < 12 || key.length > 128)) throw ArgumentError('开单请求标识无效');
+    if (!FinanceMath.methods.contains(initialPaymentMethod)) {
+      throw ArgumentError('开单收款渠道应为微信/支付宝/现金/银行转账/其他');
+    }
     if (customer.id == null) throw ArgumentError('请选择已保存的客户');
     if (lines.isEmpty) throw ArgumentError('至少需要一条产品');
     final max = BigInt.from(9223372036854775807);
@@ -790,6 +810,8 @@ class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerific
     }
     final payload = jsonEncode({'customerId': customer.id, 'discountCents': discountCents,
       'initialReceivedCents': initialReceivedCents, 'note': note.trim(),
+      // Keep the legacy payload byte-identical for existing default-channel requests.
+      if (initialPaymentMethod != '其他') 'initialPaymentMethod': initialPaymentMethod,
       'lines': lines.map((l) => SaleRevisionRepository.lineRow(0, l)..remove('sale_id')).toList()});
     return (await db).transaction((tx) async {
       if (key != null) {
@@ -833,7 +855,7 @@ class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerific
         }
         await tx.insert('payments', {
           'sale_id': saleId, 'amount_cents': initialReceivedCents,
-          'method': '其他', 'remark': '开单收款', 'created_at': now.toIso8601String(),
+          'method': initialPaymentMethod, 'remark': '开单收款', 'created_at': now.toIso8601String(),
         });
       }
       final available = await CustomerCreditLedger.balance(tx, customer.id!);
