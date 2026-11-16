@@ -55,7 +55,9 @@ void main() {
             expect(await unchanged.rawQuery("SELECT name FROM sqlite_master WHERE name='sale_revisions'"), isEmpty);
             expect(await unchanged.rawQuery("SELECT name FROM sqlite_master WHERE name='sale_line_origins'"), isEmpty);
           } finally { await unchanged.close(); }
-          await expectLater(source.close(), throwsA(isA<DatabaseException>()));
+          // A failed open is now retryable; close must remain safe and read-only.
+          await expectLater(source.db, throwsA(isA<DatabaseException>()));
+          await source.close();
         } else {
           expect(await (await source.db).getVersion(), AppDatabase.schemaVersion);
           expect((await source.saleById(1))!.receivedCents, 1500);
