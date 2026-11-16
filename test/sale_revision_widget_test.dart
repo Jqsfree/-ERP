@@ -22,7 +22,7 @@ void main() {
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
         final temp = (await tester.runAsync(() => Directory.systemTemp.createTemp('kaibao-revision-widget-')))!;
-        final db = AppDatabase.forTesting(factory: databaseFactoryFfi,
+        final db = AppDatabase.forTesting(factory: databaseFactoryFfiNoIsolate,
           databasePath: p.join(temp.path, 'book.db'));
         try {
           final sale = await tester.runAsync(() async {
