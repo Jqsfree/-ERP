@@ -1113,9 +1113,10 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
     if (widget.historical) return;
     final store = DatabaseScope.of(context);
     _outstandingFuture = store.customerOutstanding(_sale.customerId);
-    if (store is SaleRevisionStore) {
-      _pendingRefundsFuture = store.pendingSaleRefunds(_sale.id);
-      _pendingReturnsFuture = store.pendingSaleReturns(_sale.id);
+    final revisions = store is SaleRevisionStore ? store as SaleRevisionStore : null;
+    if (revisions != null) {
+      _pendingRefundsFuture = revisions.pendingSaleRefunds(_sale.id);
+      _pendingReturnsFuture = revisions.pendingSaleReturns(_sale.id);
     } else {
       _pendingRefundsFuture = null;
       _pendingReturnsFuture = null;
