@@ -45,9 +45,11 @@ class _KaibaoStartupState extends State<KaibaoStartup> {
     future: _initialization,
     builder: (context, snapshot) {
       if (snapshot.connectionState == ConnectionState.done && !snapshot.hasError) {
-        return widget.ready;
+        // Force a fresh MaterialApp/Navigator when leaving the error screen;
+        // reusing the old MaterialApp State retains its previous home route.
+        return KeyedSubtree(key: const ValueKey('database-ready'), child: widget.ready);
       }
-      return MaterialApp(
+      return KeyedSubtree(key: const ValueKey('database-initializing'), child: MaterialApp(
         title: '凯堡软装 · 启动',
         home: Scaffold(
           body: SafeArea(child: Center(child: Padding(
@@ -75,7 +77,7 @@ class _KaibaoStartupState extends State<KaibaoStartup> {
             ),
           ))),
         ),
-      );
+      ));
     },
   );
 }
