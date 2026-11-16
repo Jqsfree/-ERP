@@ -60,7 +60,19 @@ class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerific
   final DateTime Function() _clock;
   Future<Database>? _opening;
 
-  Future<Database> get db => _opening ??= _open();
+  Future<Database> get db => _opening ??= _openTracked();
+
+  // A failed migration/open must not permanently cache a rejected Future:
+  // the read-only startup error screen can retry once the underlying fault
+  // (e.g. unavailable storage) is resolved, without deleting any data.
+  Future<Database> _openTracked() async {
+    try {
+      return await _open();
+    } catch (_) {
+      _opening = null;
+      rethrow;
+    }
+  }
 
   Future<Database> _open() async {
     final path = _databasePath ?? p.join(await getDatabasesPath(), 'kaibao_sales.db');
