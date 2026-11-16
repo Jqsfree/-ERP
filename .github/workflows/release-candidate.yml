@@ -91,6 +91,14 @@ jobs:
           signer="$(awk '/Signer #1 certificate SHA-256 digest:/ {print $NF; exit}' build/release-candidate/signature.txt | tr '[:upper:]' '[:lower:]')"
           expected='d5e48b89c69c2a9f10ad3944eaf8d87dce3dac40ee7c82e4528af9c42e7599ae'
           [[ "$signer" == "$expected" ]] || { echo 'FAIL: signing certificate differs from installed v0.1.9' >&2; exit 1; }
+          aapt="$(dirname "$apksigner")/aapt"
+          [[ -x "$aapt" ]] || { echo 'FAIL: aapt unavailable for APK identity check' >&2; exit 1; }
+          version_name="$(printf '%s' "$SOURCE_VERSION" | cut -d+ -f1)"
+          version_code="$(printf '%s' "$SOURCE_VERSION" | cut -d+ -f2)"
+          expected_package="package: name='com.kaibao.kaibao_sales' versionCode='$version_code' versionName='$version_name'"
+          "$aapt" dump badging "$apk" | grep -Fq "$expected_package" || {
+            echo 'FAIL: packaged application ID or version does not match checked source' >&2; exit 1;
+          }
           cp "$apk" build/release-candidate/kaibao-sales-release.apk
           (cd build/release-candidate && sha256sum kaibao-sales-release.apk > SHA256SUMS.txt)
           printf 'commit=%s\nversion=%s\nsigning_cert_sha256=%s\n' "$SOURCE_SHA" "$SOURCE_VERSION" "$signer" > build/release-candidate/SOURCE.txt
