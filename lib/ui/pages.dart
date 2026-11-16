@@ -1103,31 +1103,6 @@ class SaleDetailPage extends StatefulWidget {
 class _SaleDetailPageState extends State<SaleDetailPage> {
   late Sale _sale = widget.sale;
   bool _busy = false;
-  Future<int>? _outstandingFuture;
-  Future<List<PendingSaleRefund>>? _pendingRefundsFuture;
-  Future<List<PendingSaleReturn>>? _pendingReturnsFuture;
-
-  // FutureBuilder must receive stable futures: starting SQLite reads from
-  // build() causes reload loops during scroll/expand and widget test pumping.
-  void _reloadFinancialFutures() {
-    if (widget.historical) return;
-    final store = DatabaseScope.of(context);
-    _outstandingFuture = store.customerOutstanding(_sale.customerId);
-    final revisions = store is SaleRevisionStore ? store as SaleRevisionStore : null;
-    if (revisions != null) {
-      _pendingRefundsFuture = revisions.pendingSaleRefunds(_sale.id);
-      _pendingReturnsFuture = revisions.pendingSaleReturns(_sale.id);
-    } else {
-      _pendingRefundsFuture = null;
-      _pendingReturnsFuture = null;
-    }
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _reloadFinancialFutures();
-  }
 
   Future<void> _transferCredit(PendingSaleRefund refund, CustomerCreditStore store) async {
     if (_busy) return;
@@ -1146,9 +1121,7 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
       final updated = await DatabaseScope.of(context).saleById(_sale.id);
       if (updated == null) throw StateError('销售单刷新失败');
       if (mounted) {
-        _sale = updated;
-        _reloadFinancialFutures();
-        setState(() {});
+        setState(() => _sale = updated);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已转入客户余额')));
       }
     } catch (e) {
@@ -1203,11 +1176,7 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
     if (!mounted) return;
     try {
       final updated = await DatabaseScope.of(context).saleById(_sale.id);
-      if (mounted && updated != null) {
-        _sale = updated;
-        _reloadFinancialFutures();
-        setState(() => _imageStatus = '单据已更新，请保存当前版本图片');
-      }
+      if (mounted && updated != null) setState(() { _sale = updated; _imageStatus = '单据已更新，请保存当前版本图片'; });
     } catch (e) { if (mounted) await _error(context, e); }
   }
 
@@ -1220,11 +1189,9 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
       final current = await DatabaseScope.of(context).saleById(_sale.id);
       if (!mounted) return;
       if (current == null) throw StateError('单据暂时无法读取，请重新查询。');
-      final imageChanged = current.receivedCents != _sale.receivedCents;
-      _sale = current;
-      _reloadFinancialFutures();
       setState(() {
-        if (imageChanged) _imageStatus = '收款已更新，请保存最新图片';
+        if (current.receivedCents != _sale.receivedCents) _imageStatus = '收款已更新，请保存最新图片';
+        _sale = current;
       });
       if (updated != null) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('收款已保存')));
     } catch (_) {
@@ -1309,7 +1276,7 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
         _total('本单未收', sale.currentDueCents, emphasize: true),
         _total('上期欠款（本版本客户快照）', sale.priorDueCents),
         if (!widget.historical) FutureBuilder<int>(
-          future: _outstandingFuture,
+          future: DatabaseScope.of(context).customerOutstanding(sale.customerId),
           builder: (context, snapshot) => snapshot.hasData
             ? _total('客户当前总欠款', snapshot.data!, emphasize: true)
             : Text(snapshot.hasError ? '当前欠款查询失败' : '当前欠款查询中…'),
@@ -1318,7 +1285,7 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
         if (sale.note.isNotEmpty) Text('备注：${sale.note}'),
         const SizedBox(height: 18),
         if (revisions != null && !widget.historical) ...[
-          FutureBuilder<List<PendingSaleRefund>>(future: _pendingRefundsFuture,
+          FutureBuilder<List<PendingSaleRefund>>(future: revisions.pendingSaleRefunds(sale.id),
             builder: (context, s) {
               if (s.hasError) return Text('待退款读取失败：${s.error}');
               if (!s.hasData) return const Text('待退款读取中…');
@@ -1331,7 +1298,7 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
                 if (s.data!.isNotEmpty) const Text('可分次登记已实际退款，或将部分金额转入客户余额。'),
               ]);
             }),
-          FutureBuilder<List<PendingSaleReturn>>(future: _pendingReturnsFuture,
+          FutureBuilder<List<PendingSaleReturn>>(future: revisions.pendingSaleReturns(sale.id),
             builder: (context, s) {
               if (s.hasError) return Text('待退货读取失败：${s.error}');
               if (!s.hasData) return const Text('待退货读取中…');
@@ -1350,11 +1317,7 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
                 saleId: sale.id, store: store as RefundStore, sales: store)));
               final updated = await store.saleById(sale.id);
               if (updated == null) throw StateError('退款后销售单刷新失败');
-              if (mounted) {
-                _sale = updated;
-                _reloadFinancialFutures();
-                setState(() {});
-              }
+              if (mounted) setState(() => _sale = updated);
             } catch (_) { if (context.mounted) await _error(context, StateError('退款后刷新失败，请重新查询，不要重复登记。')); }
             finally { if (mounted) setState(() => _busy = false); }
           }, icon: const Icon(Icons.currency_exchange), label: const Text('实际退款与冲销')),
@@ -1384,10 +1347,7 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
               await Navigator.push(context, MaterialPageRoute(
               builder: (_) => SaleFulfillmentPage(
                 saleId: sale.id, fulfillment: fulfillment, inventory: inventory)));
-              if (mounted) {
-                _reloadFinancialFutures();
-                setState(() {});
-              }
+              if (mounted) setState(() {});
             },
             icon: const Icon(Icons.local_shipping_outlined),
             label: const Text('销售出库 / 关联实物退货')),
