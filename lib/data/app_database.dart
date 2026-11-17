@@ -984,6 +984,11 @@ class AppDatabase implements RefundStore, SalesStore, MasterDataStore, BackupSto
       FROM sale_credit_events ${saleId == null ? '' : 'WHERE sale_id=?'}
       GROUP BY sale_id,customer_epoch''', saleId == null ? [] : [saleId]);
     final creditByEpoch = {for (final c in creditRows) '${c['sale_id']}:${c['customer_epoch']}': c};
+    final returnRows = await database.rawQuery('''SELECT d.sale_id, SUM(rl.length_milli) AS length,
+      SUM(rl.area_micro) AS area FROM sale_return_lines rl JOIN sale_returns sr ON sr.id=rl.return_id
+      JOIN sale_dispatches d ON d.id=sr.dispatch_id
+      ${saleId == null ? '' : 'WHERE d.sale_id=?'} GROUP BY d.sale_id''', saleId == null ? [] : [saleId]);
+    final returnsBySale = {for (final row in returnRows) row['sale_id']: row};
     for (final r in revisions) {
       final id = r['sale_id'] as int;
       if (!idsSet.contains(id)) continue;
@@ -992,7 +997,9 @@ class AppDatabase implements RefundStore, SalesStore, MasterDataStore, BackupSto
         paidByEpoch['$id:${s['epoch']}'] ?? 0,
         creditAppliedCents: creditByEpoch['$id:${s['epoch']}']?['applied'] as int? ?? 0,
         transferredCents: creditByEpoch['$id:${s['epoch']}']?['transferred'] as int? ?? 0,
-        refundedCents: await RefundLedger.net(database, id, s['epoch'] as int));
+        refundedCents: await RefundLedger.net(database, id, s['epoch'] as int),
+        returnedLengthMilli: returnsBySale[id]?['length'] as int? ?? 0,
+        returnedAreaMicro: returnsBySale[id]?['area'] as int? ?? 0);
     }
     return rows.map((row) {
       final id = row['id'] as int;
@@ -1009,6 +1016,8 @@ class AppDatabase implements RefundStore, SalesStore, MasterDataStore, BackupSto
         receivedCents: row['paid'] as int,
         creditAppliedCents: creditByEpoch['$id:0']?['applied'] as int? ?? 0,
         transferredCents: creditByEpoch['$id:0']?['transferred'] as int? ?? 0,
+        returnedLengthMilli: returnsBySale[id]?['length'] as int? ?? 0,
+        returnedAreaMicro: returnsBySale[id]?['area'] as int? ?? 0,
         status: row['status'] as String, note: row['note'] as String,
         lines: linesBySale[id] ?? [],
       );
