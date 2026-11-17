@@ -1184,7 +1184,7 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
     if (_busy) return;
     setState(() { _busy = true; _savingImages = true; _imageStatus = '销售单已保存，正在保存图片…'; });
     try {
-      final key = '${_sale.id}:${_sale.revision}:${_sale.receivedCents}:${_sale.creditAppliedCents}:${_sale.transferredCents}:${_sale.refundedCents}';
+      final key = '${_sale.id}:${_sale.revision}:${_sale.receivedCents}:${_sale.creditAppliedCents}:${_sale.transferredCents}:${_sale.refundedCents}:${_sale.returnedLengthMilli}:${_sale.returnedAreaMicro}';
       if (_imageSnapshotKey != key) { _savedImagePages.clear(); _imageSnapshotKey = key; }
       final pages = await InvoicePdf.images(_sale);
       final remaining = List.generate(pages.length, (i) => i).where((i) => !_savedImagePages.contains(i)).toList();
@@ -1231,6 +1231,24 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
     } catch (_) {
       if (mounted) await _error(context, StateError('暂时无法刷新单据，请重新查询，不要重复登记收款。'));
     }
+  }
+
+  Future<void> _shareVersionCsv() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final bundle = SalesCsvExporter.generate([_sale]);
+      final dir = await getTemporaryDirectory();
+      final prefix = '${_sale.number}-v${_sale.revision}';
+      final orders = File('${dir.path}/$prefix-销售单.csv');
+      final lines = File('${dir.path}/$prefix-销售明细.csv');
+      await orders.writeAsString(bundle.orders, flush: true);
+      await lines.writeAsString(bundle.lines, flush: true);
+      await SharePlus.instance.share(ShareParams(files: [
+        XFile(orders.path, mimeType: 'text/csv'), XFile(lines.path, mimeType: 'text/csv'),
+      ], subject: '销售单 $prefix'));
+    } catch (e) { if (mounted) await _error(context, e); }
+    finally { if (mounted) setState(() => _busy = false); }
   }
 
   Future<void> _sharePdf() async {
@@ -1306,6 +1324,7 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
         if (sale.transferredCents > 0) _total('本客户收款已转余额', sale.transferredCents),
         if (sale.refundedCents > 0) _total('本客户净实际退款', sale.refundedCents),
         _total('余额抵扣', sale.creditAppliedCents),
+        if (sale.returnedLengthMilli > 0) Text('累计实物退货：${Fixed.format(sale.returnedLengthMilli, decimals: 3)} 米 / ${Fixed.format(sale.returnedAreaMicro, decimals: 6)} ㎡（独立于资金退款）'),
         if (sale.overpaidCents > 0) _total('超收待处理（未退款）', sale.overpaidCents),
         _total('本单未收', sale.currentDueCents, emphasize: true),
         _total('上期欠款（本版本客户快照）', sale.priorDueCents),
@@ -1359,6 +1378,8 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
         OutlinedButton.icon(
           onPressed: _busy ? null : _sharePdf,
           icon: const Icon(Icons.share), label: const Text('分享 PDF')),
+        OutlinedButton.icon(onPressed: _busy ? null : _shareVersionCsv,
+          icon: const Icon(Icons.table_chart_outlined), label: const Text('分享本版本 CSV')),
         const SizedBox(height: 8),
 
         if (revisions != null && !widget.historical) ...[
@@ -1381,7 +1402,12 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
               await Navigator.push(context, MaterialPageRoute(
               builder: (_) => SaleFulfillmentPage(
                 saleId: sale.id, fulfillment: fulfillment, inventory: inventory)));
-              if (mounted) setState(() {});
+              if (!mounted) return;
+              try {
+                final refreshed = await store.saleById(sale.id);
+                if (refreshed == null) throw StateError('销售单刷新失败');
+                if (mounted) setState(() { _sale = refreshed; _imageStatus = '履约已刷新，请保存最新图片'; });
+              } catch (e) { if (mounted) await _error(context, e); }
             },
             icon: const Icon(Icons.local_shipping_outlined),
             label: const Text('销售出库 / 关联实物退货')),
