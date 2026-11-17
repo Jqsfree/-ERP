@@ -53,7 +53,7 @@ void main() {
         PurchaseLine(productId: product.id!, code: product.code,
           lengthMilli: 30000, widthMilli: 1000, unitCostCents: 500),
       ]);
-      expect((await db.purchaseOrderById(po))!.subtotalCents, 15000);
+      expect((await db.purchaseOrderById(po))!.totalCents, 15000);
       expect(await db.stockMovements(), isEmpty);
       final purchaseLine = (await db.receivableLines(po)).single;
       Future<int> receipt() => db.postPurchaseReceipt(
