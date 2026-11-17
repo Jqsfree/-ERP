@@ -82,6 +82,9 @@ class Sale {
   final int creditAppliedCents;
   final int transferredCents;
   final int refundedCents;
+  /// Physical return facts are independent of monetary refunds.
+  final int returnedLengthMilli;
+  final int returnedAreaMicro;
   final String status;
   final String note;
   final List<SaleLine> lines;
@@ -90,7 +93,7 @@ class Sale {
     required this.customerId, required this.customerName, required this.customerPhone,
     required this.customerAddress, required this.subtotalCents, required this.discountCents,
     required this.priorDueCents, required this.receivedCents,
-    this.creditAppliedCents = 0, this.transferredCents = 0, this.refundedCents = 0,
+    this.creditAppliedCents = 0, this.transferredCents = 0, this.refundedCents = 0, this.returnedLengthMilli = 0, this.returnedAreaMicro = 0,
     required this.status, required this.note, required this.lines});
 
   int get payableCents => subtotalCents - discountCents;
