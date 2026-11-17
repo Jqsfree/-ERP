@@ -1,4 +1,5 @@
 import '../application/refund_store.dart';
+import '../application/master_data_store.dart';
 import 'refund_page.dart';
 import '../application/data_integrity_store.dart';
 import 'data_integrity_page.dart';
@@ -123,62 +124,75 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-Future<bool> _createCustomer(BuildContext context) async {
+Future<bool> _createCustomer(BuildContext context, {Customer? existing}) async {
     final database = DatabaseScope.of(context);
     final formKey = GlobalKey<FormState>();
-    var name = '';
-    var phone = '';
-    var address = '';
-    var balance = '0';
+    var name = existing?.name ?? '';
+    var phone = existing?.phone ?? '';
+    var address = existing?.address ?? '';
+    var balance = Fixed.format(existing?.openingBalanceCents ?? 0, decimals: 2);
+    var active = existing?.active ?? true;
+    var saving = false;
     final saved = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('新增客户'),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, refresh) => AlertDialog(
+        title: Text(existing == null ? '新增客户' : '编辑客户'),
         content: SizedBox(width: 380, child: Form(
           key: formKey,
           child: SingleChildScrollView(child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextFormField(
+                initialValue: name,
                 decoration: const InputDecoration(labelText: '客户名称 *'),
                 onChanged: (v) => name = v,
                 validator: (v) => v == null || v.trim().isEmpty ? '必填' : null),
               const SizedBox(height: 12),
               TextFormField(
+                initialValue: phone,
                 decoration: const InputDecoration(labelText: '联系电话'),
                 onChanged: (v) => phone = v),
               const SizedBox(height: 12),
               TextFormField(
+                initialValue: address,
                 decoration: const InputDecoration(labelText: '收货地址'),
                 onChanged: (v) => address = v),
               const SizedBox(height: 12),
               TextFormField(
-                initialValue: '0',
+                initialValue: balance,
+                readOnly: existing != null,
                 decoration: const InputDecoration(labelText: '初始欠款（元）'),
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 onChanged: (v) => balance = v),
+              if (existing != null) SwitchListTile(title: const Text('启用客户'),
+                subtitle: const Text('停用后不可新选，历史记录和收款保留'),
+                value: active, onChanged: saving ? null : (v) => refresh(() => active = v)),
             ],
           )),
         )),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(onPressed: saving ? null : () => Navigator.pop(ctx, false), child: const Text('取消')),
           FilledButton(
-            onPressed: () async {
+            onPressed: saving ? null : () async {
               if (!formKey.currentState!.validate()) return;
+              refresh(() => saving = true);
               try {
-                await database.addCustomer(Customer(
-                  name: name, phone: phone, address: address,
-                  openingBalanceCents: Fixed.parse(balance, decimals: 2),
-                ));
+                final item = Customer(id: existing?.id, name: name, phone: phone, address: address,
+                  openingBalanceCents: Fixed.parse(balance, decimals: 2), active: active);
+                if (existing == null) {
+                  await database.addCustomer(item);
+                } else if (database is MasterDataStore) {
+                  await (database as MasterDataStore).updateCustomer(item);
+                } else { throw StateError('当前存储不支持编辑客户'); }
                 if (ctx.mounted) Navigator.pop(ctx, true);
               } catch (e) {
                 if (ctx.mounted) await _error(ctx, e);
-              }
+              } finally { if (ctx.mounted) refresh(() => saving = false); }
             },
             child: const Text('保存'),
           ),
         ],
-      ),
+      )),
     );
     return saved == true;
 }
@@ -191,6 +205,7 @@ class CustomersPage extends StatefulWidget {
 
 class _CustomersPageState extends State<CustomersPage> {
   late Future<List<Customer>> _items;
+  String _query = '';
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -213,11 +228,15 @@ class _CustomersPageState extends State<CustomersPage> {
       if (snapshot.hasError) return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [const Text('暂时无法读取，请重试'), TextButton(onPressed: _refresh, child: const Text('重新加载'))]));
       if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
       if (snapshot.data!.isEmpty) return const Center(child: Text('暂无客户，请点击「新增客户」'));
-      return ListView.builder(itemCount: snapshot.data!.length, itemBuilder: (context, i) {
-        final c = snapshot.data![i];
+      final filtered = snapshot.data!.where((c) => '${c.name} ${c.phone} ${c.address}'.toLowerCase().contains(_query)).toList();
+      return Column(children: [
+        Padding(padding: const EdgeInsets.all(12), child: TextField(decoration: const InputDecoration(labelText: '搜索客户'), onChanged: (v) => setState(() => _query = v.trim().toLowerCase()))),
+        Expanded(child: ListView.builder(itemCount: filtered.length, itemBuilder: (context, i) {
+        final c = filtered[i];
         final store = DatabaseScope.of(context);
         final credit = store is CustomerCreditStore ? store as CustomerCreditStore : null;
-        return ListTile(title: Text(c.name), subtitle: Text('${c.phone}  ${c.address}'),
+        return ListTile(title: Text(c.active ? c.name : '${c.name}（停用）'), subtitle: Text('${c.phone}  ${c.address}'),
+          leading: store is MasterDataStore ? IconButton(tooltip: '编辑客户', icon: const Icon(Icons.edit_outlined), onPressed: () async { if (await _createCustomer(context, existing: c) && mounted) _refresh(); }) : null,
           onTap: credit == null ? null : () async {
             await Navigator.push(context, MaterialPageRoute(builder: (_) =>
               CustomerCreditPage(customerId: c.id!, store: credit)));
@@ -231,7 +250,7 @@ class _CustomersPageState extends State<CustomersPage> {
                   builder: (context, b) => Text(b.hasData ? '余额 ¥${Fixed.format(b.data!.balanceCents, decimals: 2)}' :
                     b.hasError ? '余额读取失败' : '余额读取中…')),
               ])));
-      });
+      }))]);
     }),
   );
 }
@@ -244,6 +263,7 @@ class ProductsPage extends StatefulWidget {
 
 class _ProductsPageState extends State<ProductsPage> {
   late Future<List<Product>> _items;
+  String _query = '';
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -254,57 +274,67 @@ class _ProductsPageState extends State<ProductsPage> {
     setState(() { _items = pending; });
   }
 
-  Future<void> _create() async {
+  Future<void> _create({Product? existing}) async {
     final database = DatabaseScope.of(context);
     final formKey = GlobalKey<FormState>();
-    var code = '';
-    var spec = '';
-    var price = '';
+    var code = existing?.code ?? '';
+    var spec = existing?.specification ?? '';
+    var price = existing == null ? '' : Fixed.format(existing.unitPriceCents, decimals: 2);
+    var active = existing?.active ?? true;
+    var saving = false;
     final saved = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('新增产品'),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, refresh) => AlertDialog(
+        title: Text(existing == null ? '新增产品' : '编辑产品'),
         content: SizedBox(width: 380, child: Form(
           key: formKey,
           child: SingleChildScrollView(child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextFormField(
+                initialValue: code,
                 decoration: const InputDecoration(labelText: '产品型号 *'),
                 onChanged: (v) => code = v,
                 validator: (v) => v == null || v.trim().isEmpty ? '必填' : null),
               const SizedBox(height: 12),
               TextFormField(
+                initialValue: spec,
                 decoration: const InputDecoration(labelText: '规格型号（可空）'),
                 onChanged: (v) => spec = v),
               const SizedBox(height: 12),
               TextFormField(
+                initialValue: price,
                 decoration: const InputDecoration(labelText: '默认单价（元/平方米）*'),
                 onChanged: (v) => price = v,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 validator: (v) => v == null || v.isEmpty ? '必填' : null),
+              if (existing != null) SwitchListTile(title: const Text('启用产品'),
+                subtitle: const Text('停用后不可新选，既有出入库及历史单据保留'),
+                value: active, onChanged: saving ? null : (v) => refresh(() => active = v)),
             ],
           )),
         )),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(onPressed: saving ? null : () => Navigator.pop(ctx, false), child: const Text('取消')),
           FilledButton(
-            onPressed: () async {
+            onPressed: saving ? null : () async {
               if (!formKey.currentState!.validate()) return;
+              refresh(() => saving = true);
               try {
-                await database.addProduct(Product(
-                  code: code, specification: spec,
-                  unitPriceCents: Fixed.parse(price, decimals: 2),
-                ));
+                final item = Product(id: existing?.id, code: code, specification: spec,
+                  unitPriceCents: Fixed.parse(price, decimals: 2), active: active);
+                if (existing == null) { await database.addProduct(item); }
+                else if (database is MasterDataStore) { await (database as MasterDataStore).updateProduct(item); }
+                else { throw StateError('当前存储不支持编辑商品'); }
                 if (ctx.mounted) Navigator.pop(ctx, true);
               } catch (e) {
                 if (ctx.mounted) await _error(ctx, e);
-              }
+              } finally { if (ctx.mounted) refresh(() => saving = false); }
             },
             child: const Text('保存'),
           ),
         ],
-      ),
+      )),
     );
     if (saved == true && mounted) _refresh();
   }
@@ -317,11 +347,15 @@ class _ProductsPageState extends State<ProductsPage> {
       if (snapshot.hasError) return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [const Text('暂时无法读取，请重试'), TextButton(onPressed: _refresh, child: const Text('重新加载'))]));
       if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
       if (snapshot.data!.isEmpty) return const Center(child: Text('暂无产品，请点击「新增产品」'));
-      return ListView.builder(itemCount: snapshot.data!.length, itemBuilder: (context, i) {
-        final p = snapshot.data![i];
-        return ListTile(title: Text(p.code), subtitle: Text(p.specification),
+      final filtered = snapshot.data!.where((p) => '${p.code} ${p.specification}'.toLowerCase().contains(_query)).toList();
+      return Column(children: [
+        Padding(padding: const EdgeInsets.all(12), child: TextField(decoration: const InputDecoration(labelText: '搜索产品'), onChanged: (v) => setState(() => _query = v.trim().toLowerCase()))),
+        Expanded(child: ListView.builder(itemCount: filtered.length, itemBuilder: (context, i) {
+        final p = filtered[i];
+        return ListTile(title: Text(p.active ? p.code : '${p.code}（停用）'), subtitle: Text(p.specification),
+          leading: DatabaseScope.of(context) is MasterDataStore ? IconButton(tooltip: '编辑产品', icon: const Icon(Icons.edit_outlined), onPressed: () => _create(existing: p)) : null,
           trailing: Text('¥${Fixed.format(p.unitPriceCents, decimals: 2)}/㎡'));
-      });
+      }))]);
     }),
   );
 }
@@ -560,9 +594,9 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
   Future<void> _load() async {
     try {
       final database = DatabaseScope.of(context);
-      final customers = await database.customers();
-      final products = await database.products();
       final original = widget.sale == null ? null : await database.saleById(widget.sale!.id);
+      final customers = (await database.customers()).where((c) => c.active || c.id == original?.customerId).toList();
+      final products = (await database.products()).where((p) => p.active || (original?.lines.any((l) => l.productId == p.id) ?? false)).toList();
       if (widget.sale != null && original == null) throw StateError('销售单不存在');
       final draft = original == null ? await database.loadDraft() : null;
       if (!mounted) return;
@@ -602,7 +636,7 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
     final existingIds = _customers.map((customer) => customer.id).toSet();
     if (!await _createCustomer(context) || !mounted) return;
     try {
-      final customers = await DatabaseScope.of(context).customers();
+      final customers = (await DatabaseScope.of(context).customers()).where((c) => c.active || c.id == _original?.customerId).toList();
       if (!mounted) return;
       final added = customers.where((customer) => !existingIds.contains(customer.id)).toList();
       setState(() {
@@ -940,7 +974,7 @@ class _SaleEditorPageState extends State<SaleEditorPage> {
           initialValue: input.productId,
           isExpanded: true,
           decoration: const InputDecoration(labelText: '从产品库选择（可选）'),
-          items: _products.map((p) => DropdownMenuItem(value: p.id, child: Text(p.code))).toList(),
+          items: _products.where((p) => p.active || p.id == input.productId).map((p) => DropdownMenuItem(value: p.id, child: Text(p.active ? p.code : '${p.code}（停用）'), enabled: p.active)).toList(),
           onChanged: (id) {
             if (id == null) return;
             setState(() => input.useProduct(_products.firstWhere((p) => p.id == id)));
