@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaibao_sales/data/app_database.dart';
+import 'package:kaibao_sales/data/backup_snapshot.dart';
 import 'package:kaibao_sales/domain/models.dart';
 import 'package:kaibao_sales/domain/procurement.dart';
 import 'package:kaibao_sales/domain/inventory.dart';
@@ -216,6 +217,14 @@ void main() {
       // Real encrypted file, restore to independent empty database, close and reopen,
       // then compare every persisted table and replay the same financial balances.
       final plain = await db.exportSnapshotJson();
+      final tampered = jsonDecode(plain) as Map;
+      final requests = (tampered['tables'] as Map)['sale_creation_requests'] as List;
+      final opening = requests.cast<Map>().singleWhere((r) => r['sale_id'] == id);
+      final payload = jsonDecode(opening['payload'] as String) as Map;
+      payload['initialPaymentMethod'] = '现金';
+      opening['payload'] = jsonEncode(payload);
+      expect(() => BackupSnapshot.parse(jsonEncode(tampered)), throwsFormatException,
+        reason: 'First receipt channel must match its persisted opening request');
       final file = File(p.join(temp.path, 'business.kberp'));
       const password = 'phase2-fixture-password-2026';
       await file.writeAsBytes(await BackupCodec.encrypt(plain, password), flush: true);
@@ -238,6 +247,38 @@ void main() {
       } finally {
         await target.close();
       }
+    } finally {
+      await db.close();
+      await temp.delete(recursive: true);
+    }
+  });
+
+  test('Zero opening receipt preserves valid selected channel without creating cash', () async {
+    final temp = await Directory.systemTemp.createTemp('kaibao-phase2-zero-');
+    final db = AppDatabase.forTesting(factory: databaseFactoryFfi,
+      databasePath: p.join(temp.path, 'source.db'),
+      clock: () => DateTime(2026, 11, 17, 10));
+    try {
+      await db.addCustomer(const Customer(name: 'A'));
+      final customer = (await db.customers()).single;
+      const lines = [SaleLine(code: 'X', lengthMilli: 1000,
+        widthMilli: 1000, unitPriceCents: 1000)];
+      Future<int> create() => db.createSaleWithCredit(customer: customer,
+        lines: lines, discountCents: 0, initialReceivedCents: 0,
+        initialPaymentMethod: '支付宝', requestKey: 'phase2-zero-receipt-001');
+      final id = await create();
+      expect(await create(), id);
+      expect((await (await db.db).query('payments')), isEmpty);
+      expect((await db.dayStatement('2026-11-17')).expectedNetCents, 0);
+      expect((await db.saleById(id))!.currentDueCents, 1000);
+      final plain = await db.exportSnapshotJson();
+      await db.verifySnapshotJson(plain);
+      final bad = jsonDecode(plain) as Map;
+      final row = ((bad['tables'] as Map)['sale_creation_requests'] as List).single as Map;
+      final payload = jsonDecode(row['payload'] as String) as Map;
+      payload['initialPaymentMethod'] = 'invalid-channel';
+      row['payload'] = jsonEncode(payload);
+      expect(() => BackupSnapshot.parse(jsonEncode(bad)), throwsFormatException);
     } finally {
       await db.close();
       await temp.delete(recursive: true);
