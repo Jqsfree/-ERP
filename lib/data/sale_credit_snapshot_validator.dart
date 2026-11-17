@@ -1,6 +1,7 @@
 import 'refund_ledger.dart';
 import 'dart:convert';
 import '../domain/models.dart';
+import '../domain/finance.dart';
 import 'fulfillment_snapshot_validator.dart';
 import 'sale_credit_ledger.dart';
 import 'sale_revision_repository.dart';
@@ -165,10 +166,23 @@ class SaleCreditSnapshotValidator {
       final originalLines = t['sale_lines']!.where((l) => l['sale_id'] == sid &&
         !t['sale_line_origins']!.any((o) => o['sale_line_id'] == l['id'])).toList()
         ..sort((a,b) => (a['id'] as int).compareTo(b['id'] as int));
-      final initial = t['payments']!.where((p) => p['sale_id'] == sid && p['remark'] == '开单收款')
-        .fold<int>(0, (n,p) => n + (p['amount_cents'] as int));
+      final openingPayments = t['payments']!.where((p) =>
+        p['sale_id'] == sid && p['remark'] == '开单收款').toList();
+      if (openingPayments.length > 1) throw const FormatException('开单请求有多笔首收流水');
+      final initial = openingPayments.isEmpty ? 0 : openingPayments.single['amount_cents'] as int;
+      final request = jsonDecode(r['payload'] as String) as Map;
+      // A positive opening receipt has an independent persisted channel.
+      // A zero receipt has no payment row; preserve a valid selected channel
+      // from the request for compatibility and exact idempotent replay.
+      final method = openingPayments.isEmpty
+        ? (request['initialPaymentMethod'] ?? '其他')
+        : openingPayments.single['method'];
+      if (!FinanceMath.methods.contains(method)) {
+        throw const FormatException('开单首收渠道无效');
+      }
       final expected = jsonEncode({'customerId': h['customer_id'], 'discountCents': h['discount_cents'],
         'initialReceivedCents': initial, 'note': h['note'],
+        if (method != '其他') 'initialPaymentMethod': method,
         'lines': originalLines.map((l) => SaleRevisionRepository.lineRow(0, SaleLine.fromMap(l))..remove('sale_id')).toList()});
       if (r['payload'] != expected) throw const FormatException('开单请求与原始交易不一致');
     }
