@@ -19,7 +19,10 @@ jobs:
         run: |
           grep -q '"flutter": "3.47.9"' .fvmrc
       - name: Shell script syntax
-        run: bash -n scripts/doctor.sh scripts/bootstrap-ubuntu.sh
+        run: |
+          for script in scripts/doctor.sh scripts/bootstrap-ubuntu.sh scripts/accept-android-device.sh; do bash -n "$script"; done
+          version_name="$(sed -nE 's/^version:[[:space:]]*([^+]+)\+.*/\1/p' pubspec.yaml)"
+          grep -Fq "版本 $version_name\\n" lib/ui/pages.dart
       - name: Install Flutter
         uses: subosito/flutter-action@v2
         with:
