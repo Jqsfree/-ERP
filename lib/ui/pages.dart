@@ -178,7 +178,7 @@ Future<bool> _createCustomer(BuildContext context, {Customer? existing}) async {
               refresh(() => saving = true);
               try {
                 final item = Customer(id: existing?.id, name: name, phone: phone, address: address,
-                  openingBalanceCents: Fixed.parse(balance, decimals: 2), active: active);
+                  openingBalanceCents: existing?.openingBalanceCents ?? Fixed.parse(balance, decimals: 2), active: active);
                 if (existing == null) {
                   await database.addCustomer(item);
                 } else if (database is MasterDataStore) {
@@ -293,7 +293,7 @@ class _ProductsPageState extends State<ProductsPage> {
             children: [
               TextFormField(
                 initialValue: code,
-                decoration: const InputDecoration(labelText: '产品型号 *'),
+                decoration: InputDecoration(labelText: '产品型号 *', helperText: existing == null ? null : '已有业务关联的型号不可改'),
                 onChanged: (v) => code = v,
                 validator: (v) => v == null || v.trim().isEmpty ? '必填' : null),
               const SizedBox(height: 12),
