@@ -33,6 +33,9 @@ jobs:
           version="$(sed -nE 's/^version:[[:space:]]*([^[:space:]]+).*/\1/p' pubspec.yaml)"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+[0-9]+$ ]] || { echo 'FAIL: invalid pubspec version' >&2; exit 1; }
           version_name="$(printf '%s' "$version" | cut -d+ -f1)"
+          version_code="$(printf '%s' "$version" | cut -d+ -f2)"
+          (( 10#$version_code > 10 )) || { echo 'FAIL: versionCode must exceed the installed v0.1.9 build 10' >&2; exit 1; }
+          grep -Fq "版本 $version_name\\n" lib/ui/pages.dart || { echo 'FAIL: UI version differs from source version' >&2; exit 1; }
           if git show-ref --tags --verify --quiet "refs/tags/v$version_name"; then
             echo "FAIL: v$version_name already tagged; bump version before creating another release" >&2
             exit 1
@@ -96,7 +99,8 @@ jobs:
           version_name="$(printf '%s' "$SOURCE_VERSION" | cut -d+ -f1)"
           version_code="$(printf '%s' "$SOURCE_VERSION" | cut -d+ -f2)"
           expected_package="package: name='com.kaibao.kaibao_sales' versionCode='$version_code' versionName='$version_name'"
-          "$aapt" dump badging "$apk" | grep -Fq "$expected_package" || {
+          "$aapt" dump badging "$apk" > build/release-candidate/package.txt
+          grep -Fq "$expected_package" build/release-candidate/package.txt || {
             echo 'FAIL: packaged application ID or version does not match checked source' >&2; exit 1;
           }
           cp "$apk" build/release-candidate/kaibao-sales-release.apk
@@ -111,5 +115,9 @@ jobs:
             build/release-candidate/SHA256SUMS.txt
             build/release-candidate/SOURCE.txt
             build/release-candidate/signature.txt
+            build/release-candidate/package.txt
           if-no-files-found: error
           retention-days: 14
+      - name: Remove temporary signing files
+        if: always()
+        run: rm -f android/app/release.jks android/key.properties
