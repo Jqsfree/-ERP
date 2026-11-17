@@ -116,7 +116,7 @@ class _HomePageState extends State<HomePage> {
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => BackupPage(store: backupStore)))),
           if (store is DataIntegrityStore) entry('数据检查', '只读核对金额、流水和商品关联，不自动改账', Icons.fact_check_outlined,
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => DataIntegrityPage(store: store as DataIntegrityStore)))),
-          const ListTile(title: Text('凯堡软装'), subtitle: Text('版本 0.1.9\n新单自动存图片；改单和收款后可手动另存。')),
+          const ListTile(title: Text('凯堡软装'), subtitle: Text('版本 0.1.10\n新单自动存图片；改单和收款后可手动另存。')),
         ]),
       ]),
     ));
