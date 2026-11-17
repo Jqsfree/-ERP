@@ -34,9 +34,17 @@ class InvoicePdf {
   /// Each image contains at most nine product rows; totals appear on the last page.
   static Future<List<Uint8List>> images(Sale sale) async {
     const pageItems = 9;
-    final pages = (sale.lines.length / pageItems).ceil().clamp(1, 1 << 30);
-    return [for (var page = 0; page < pages; page++)
-      await _pagePng(sale, page, pages, pageItems)];
+    final mainPages = (sale.lines.length / pageItems).ceil().clamp(1, 1 << 30);
+    final continuation = continuationLines(sale);
+    const continuationPageItems = 24;
+    final extraPages = (continuation.length / continuationPageItems).ceil();
+    return [
+      for (var page = 0; page < mainPages; page++)
+        await _pagePng(sale, page, mainPages, pageItems, mainPages + extraPages),
+      for (var page = 0; page < extraPages; page++)
+        await _continuationPng(sale, continuation.skip(page * continuationPageItems).take(continuationPageItems).toList(),
+          mainPages + page + 1, mainPages + extraPages),
+    ];
   }
 
   static Future<void> printInvoice(Sale sale) async {
@@ -49,7 +57,7 @@ class InvoicePdf {
     await Printing.sharePdf(bytes: data, filename: '${sale.number}-v${sale.revision}.pdf');
   }
 
-  static Future<Uint8List> _pagePng(Sale sale, int page, int pages, int pageItems) async {
+  static Future<Uint8List> _pagePng(Sale sale, int page, int pages, int pageItems, int totalPages) async {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     canvas.scale(2.0);
@@ -59,7 +67,7 @@ class InvoicePdf {
     _text(canvas, 'NO.${sale.number} · 版本 ${sale.revision}', 24, 89, 730, fontSize: 17);
     _text(canvas, '客户：${sale.customerName}', 24, 121, 560, fontSize: 17);
     _text(canvas, '销售日期：${sale.date}', 735, 121, 315, fontSize: 17);
-    if (pages > 1) _text(canvas, '第 ${page + 1} / $pages 页', 896, 92, 150, fontSize: 13);
+    if (totalPages > 1) _text(canvas, '第 ${page + 1} / $totalPages 页', 896, 92, 150, fontSize: 13);
 
     const top = 155.0;
     const headerH = 36.0;
@@ -147,6 +155,79 @@ class InvoicePdf {
     image.dispose();
     picture.dispose();
     if (data == null) throw StateError('PDF 页渲染失败');
+    return data.buffer.asUint8List();
+  }
+
+  // The compact original form stays intact. Full-text continuation sheets are
+  // appended whenever a field would be clipped, or stock returns exist.
+  static bool _fits(String text, double width, double fontSize, int maxLines) {
+    final painter = TextPainter(text: TextSpan(text: text, style: TextStyle(fontSize: fontSize)),
+      textDirection: TextDirection.ltr, maxLines: maxLines, ellipsis: '…')..layout(maxWidth: width);
+    final fits = !painter.didExceedMaxLines;
+    painter.dispose();
+    return fits;
+  }
+
+  static List<String> continuationLines(Sale sale) {
+    final rows = <String>[];
+    void full(String label, String value) {
+      rows.add(label);
+      // Preserve line boundaries and Unicode code points. Fit each emitted row
+      // against the same rendering width; never apply ellipsis to source text.
+      for (final paragraph in value.split('\n')) {
+        final runes = paragraph.runes.toList();
+        if (runes.isEmpty) { rows.add(''); continue; }
+        var start = 0;
+        while (start < runes.length) {
+          var end = (start + 48).clamp(start + 1, runes.length);
+          var part = String.fromCharCodes(runes.sublist(start, end));
+          while (!_fits(part, 1020, 16, 1) && end > start + 1) {
+            end--;
+            part = String.fromCharCodes(runes.sublist(start, end));
+          }
+          rows.add(part);
+          start = end;
+        }
+      }
+    }
+    void check(String label, String value, double width, double font, int maxLines) {
+      if (!_fits(value, width, font, maxLines) || value.contains('\n')) full(label, value);
+    }
+    check('客户姓名（完整）', '客户：${sale.customerName}', 560, 17, 1);
+    if (sale.customerPhone.isNotEmpty) full('客户电话', sale.customerPhone);
+    check('收货地址（完整）', '订货地址：${sale.customerAddress}', 670, 15, 1);
+    check('单据备注（完整）', '单据备注：${sale.note}', 1030, 14, 1);
+    for (var i = 0; i < sale.lines.length; i++) {
+      final line = sale.lines[i];
+      for (final item in [(1, '型号', line.code), (2, '规格', line.specification), (8, '备注', line.note)]) {
+        final width = _columns[item.$1 + 1] - _columns[item.$1] - 6;
+        final wrap = !_fits(item.$3, width, 15, 1);
+        check('第 ${i + 1} 行 ${item.$2}（完整）', item.$3, width, wrap ? 11 : 15, wrap ? 2 : 1);
+      }
+    }
+    if (sale.returnedLengthMilli != 0 || sale.returnedAreaMicro != 0) {
+      full('累计实物退货（按此单据版本的读取时点；独立于资金退款）',
+        '${Fixed.format(sale.returnedLengthMilli, decimals: 3)} 米 / '
+        '${Fixed.format(sale.returnedAreaMicro, decimals: 6)} ㎡');
+    }
+    return rows;
+  }
+
+  static Future<Uint8List> _continuationPng(Sale sale, List<String> rows, int page, int pages) async {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder)..scale(2.0);
+    canvas.drawRect(const Rect.fromLTWH(0, 0, _width, _height), Paint()..color = Colors.white);
+    _text(canvas, '凯堡软装销售单 · 附页', 24, 30, 1030, fontSize: 26, center: true);
+    _text(canvas, 'NO.${sale.number} · 版本 ${sale.revision} · 第 $page / $pages 页',
+      24, 80, 1030, fontSize: 17);
+    for (var i = 0; i < rows.length; i++) {
+      _text(canvas, rows[i], 24, 115 + i * 25.0, 1020, fontSize: 16);
+    }
+    final picture = recorder.endRecording();
+    final image = await picture.toImage((_width * 2).toInt(), (_height * 2).toInt());
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose(); picture.dispose();
+    if (data == null) throw StateError('单据附页渲染失败');
     return data.buffer.asUint8List();
   }
 
