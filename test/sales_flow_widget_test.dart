@@ -2,13 +2,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaibao_sales/application/sales_store.dart';
+import 'package:kaibao_sales/application/master_data_store.dart';
 import 'package:kaibao_sales/domain/models.dart';
 import 'package:kaibao_sales/ui/pages.dart';
 import 'package:kaibao_sales/ui/database_scope.dart';
 
 /// UI tests use a synchronous-in-memory application port implementation.
 /// True SQLite IO and process reopen are verified separately by database_integration_test.
-class _InMemorySalesStore implements SalesStore {
+class _InMemorySalesStore implements SalesStore, MasterDataStore {
   final _customers = <Customer>[];
   final _products = <Product>[];
   final _sales = <Sale>[];
@@ -28,6 +29,16 @@ class _InMemorySalesStore implements SalesStore {
       specification: product.specification, unitPriceCents: product.unitPriceCents));
   }
 
+  @override
+  Future<void> updateCustomer(Customer customer) async {
+    final i = _customers.indexWhere((c) => c.id == customer.id);
+    _customers[i] = customer;
+  }
+  @override
+  Future<void> updateProduct(Product product) async {
+    final i = _products.indexWhere((p) => p.id == product.id);
+    _products[i] = product;
+  }
   @override
   Future<List<Customer>> customers() async => List.of(_customers);
 
@@ -102,6 +113,66 @@ void main() {
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(const MethodChannel('kaibao/image_album'), null);
+  });
+  testWidgets('资料页搜索、编辑、停用恢复与新单选择限制', (tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final store = _InMemorySalesStore();
+    await store.addCustomer(const Customer(name: 'Alpha', openingBalanceCents: 500));
+    await store.addCustomer(const Customer(name: 'Beta'));
+    await store.addProduct(const Product(code: 'X1', specification: 'old', unitPriceCents: 1000));
+
+    Future<void> mount(Widget page) async {
+      await tester.pumpWidget(DatabaseScope(key: UniqueKey(), database: store,
+        child: MaterialApp(home: page)));
+      await tester.pumpAndSettle();
+    }
+    await mount(const CustomersPage());
+    await tester.enterText(find.widgetWithText(TextField, '搜索客户'), 'Alpha');
+    await tester.pumpAndSettle();
+    expect(find.text('Beta'), findsNothing);
+    await tester.tap(find.byTooltip('编辑客户'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextFormField, '客户名称 *'), 'Alpha edited');
+    final opening = find.descendant(of: find.widgetWithText(TextFormField, '初始欠款（元）'), matching: find.byType(EditableText));
+    expect(tester.widget<EditableText>(opening).readOnly, isTrue);
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(find.text('Alpha edited（停用）'), findsOneWidget);
+    expect((await store.customers()).first.openingBalanceCents, 500);
+    expect((await store.customers()).first.active, isFalse);
+
+    await mount(const ProductsPage());
+    await tester.tap(find.byTooltip('编辑产品'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextFormField, '规格型号（可空）'), 'new spec');
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(find.text('X1（停用）'), findsOneWidget);
+    expect((await store.products()).single.specification, 'new spec');
+    expect((await store.products()).single.active, isFalse);
+
+    await mount(const SaleEditorPage());
+    await tester.tap(find.byType(DropdownButtonFormField<int>).first);
+    await tester.pumpAndSettle();
+    expect(find.text('Alpha edited'), findsNothing);
+    expect(find.text('Beta'), findsWidgets);
+
+    await mount(const ProductsPage());
+    await tester.tap(find.byTooltip('编辑产品'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect((await store.products()).single.active, isTrue);
+    expect(tester.takeException(), isNull);
   });
   testWidgets('首页常用入口和无客户开单引导、草稿恢复与校验', (tester) async {
     final store = _InMemorySalesStore();
