@@ -209,6 +209,9 @@ class SaleRevisionRepository implements SaleRevisionStore {
       final customers = await tx.query('customers', where: 'id=?', whereArgs: [customerId]);
       if (customers.isEmpty) throw ArgumentError('客户不存在');
       final customer = customers.single;
+      if (customerId != old.customerId && customer['active'] != 1) {
+        throw StateError('不能将销售单改为停用客户');
+      }
       final happenedAt = clock();
       final now = happenedAt.toIso8601String();
       if (version == 0) {
