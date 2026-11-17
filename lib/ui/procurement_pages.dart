@@ -193,7 +193,7 @@ class _PurchaseEditorPageState extends State<PurchaseEditorPage> {
 
   Future<void> _load() async {
     final suppliers = await widget.store.suppliers(includeInactive: false);
-    final products = await widget.catalog.products();
+    final products = (await widget.catalog.products()).where((p) => p.active).toList();
     _suppliers = suppliers;
     _products = products;
   }

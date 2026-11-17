@@ -11,7 +11,7 @@ void main() {
   setUpAll(sqfliteFfiInit);
   for (final failure in [false, true]) {
     test(
-      'v10→v11 ${failure ? '迁移失败整事务回滚，不改旧款' : '保留历史、空退款表、兼容v10备份及关闭重开'}',
+      'v10→当前版 ${failure ? '迁移失败整事务回滚，不改旧款' : '保留历史、空退款表、兼容v10备份及关闭重开'}',
       () async {
         final dir = await Directory.systemTemp.createTemp('refund-migration-');
         final path = '${dir.path}/old.db';
@@ -70,7 +70,7 @@ void main() {
               await untouched.close();
             }
           } else {
-            expect(await (await db.db).getVersion(), 11);
+            expect(await (await db.db).getVersion(), AppDatabase.schemaVersion);
             expect(await (await db.db).query('payments'), before);
             expect(await db.saleRefundEvents(sid), isEmpty);
             expect((await db.saleById(sid))!.refundedCents, 0);

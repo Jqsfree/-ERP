@@ -19,13 +19,13 @@ class BackupSnapshot {
 
   static const format = 'kaibao.sqlite.snapshot';
   static const version = 1;
-  static const schemaVersion = 11;
+  static const schemaVersion = 12;
   static const maxJsonLength = 32 * 1024 * 1024;
   static const maxRowsPerTable = 50000;
 
   static const columns = <String, List<String>>{
-    'customers': ['id', 'name', 'phone', 'address', 'opening_balance_cents'],
-    'products': ['id', 'code', 'specification', 'unit_price_cents'],
+    'customers': ['id', 'name', 'phone', 'address', 'opening_balance_cents', 'active'],
+    'products': ['id', 'code', 'specification', 'unit_price_cents', 'active'],
     'sales': [
       'id', 'number', 'date', 'customer_id', 'customer_name_snapshot',
       'customer_phone_snapshot', 'customer_address_snapshot', 'subtotal_cents',
@@ -120,7 +120,7 @@ class BackupSnapshot {
     final decoded = jsonDecode(input);
     if (decoded is! Map<String, dynamic> ||
         decoded['format'] != format || decoded['version'] != version ||
-        (decoded['schemaVersion'] != schemaVersion && decoded['schemaVersion'] != 10 && decoded['schemaVersion'] != 9 && decoded['schemaVersion'] != 8 && decoded['schemaVersion'] != 7 && decoded['schemaVersion'] != 6 && decoded['schemaVersion'] != 5 &&
+        (decoded['schemaVersion'] != schemaVersion && decoded['schemaVersion'] != 11 && decoded['schemaVersion'] != 10 && decoded['schemaVersion'] != 9 && decoded['schemaVersion'] != 8 && decoded['schemaVersion'] != 7 && decoded['schemaVersion'] != 6 && decoded['schemaVersion'] != 5 &&
           decoded['schemaVersion'] != 4 && decoded['schemaVersion'] != 3 &&
           decoded['schemaVersion'] != 2) ||
         decoded['createdAt'] is! String) {
@@ -213,6 +213,19 @@ class BackupSnapshot {
       tables['sale_credit_events'] = (tables['sale_credit_events'] as List).map((r) =>
         Map<String,Object?>.from(r as Map)..['refund_cutoff'] = 0).toList();
     }
+    if ((decoded['schemaVersion'] as int) < 12) {
+      for (final table in ['customers', 'products']) {
+        final old = tables[table];
+        if (old is! List) throw FormatException('旧备份缺少 $table');
+        tables[table] = old.map((raw) {
+          final row = Map<String,Object?>.from(raw as Map);
+          if (row.containsKey('active') && row['active'] != 1) {
+            throw FormatException('旧备份不能携带停用状态：$table');
+          }
+          return row..['active'] = 1;
+        }).toList();
+      }
+    }
     if (
         tables.keys.toSet().difference(columns.keys.toSet()).isNotEmpty ||
         columns.keys.toSet().difference(tables.keys.toSet()).isNotEmpty) {
@@ -267,6 +280,7 @@ class BackupSnapshot {
     for (final row in rows['customers']!) {
       final id = positiveId(row['id'], 'customers.id');
       if (!customers.add(id)) throw const FormatException('客户 ID 重复');
+      if (row['active'] is! int || ![0,1].contains(row['active'])) throw const FormatException('客户启停状态无效');
       requireText(row['name'], '客户名称');
       requireText(row['phone'], '客户电话');
       requireText(row['address'], '客户地址');
@@ -275,6 +289,7 @@ class BackupSnapshot {
     for (final row in rows['products']!) {
       final id = positiveId(row['id'], 'products.id');
       if (!products.add(id)) throw const FormatException('产品 ID 重复');
+      if (row['active'] is! int || ![0,1].contains(row['active'])) throw const FormatException('产品启停状态无效');
       requireText(row['code'], '产品型号');
       requireText(row['specification'], '产品规格');
       nonNegative(row['unit_price_cents'], '产品单价');

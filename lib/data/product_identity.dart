@@ -15,6 +15,7 @@ class ProductIdentity {
       // Foreign keys reject missing products on the actual insert, preserving
       // the database's rollback/error contract for invalid references.
       if (products.isEmpty) continue;
+      if (products.single['active'] != 1) throw StateError('停用产品不能新关联销售行');
       if (products.single['code'] != line.code) {
         throw StateError('商品型号或规格与库存商品不一致，请重新选择商品，或改为手填且不关联库存。');
       }

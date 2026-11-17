@@ -10,7 +10,7 @@ class SalesCsvBundle {
 }
 
 class SalesCsvExporter {
-  static const version = 4;
+  static const version = 5;
 
   static SalesCsvBundle generate(List<Sale> sales) {
     final orders = StringBuffer('\uFEFF');
@@ -18,7 +18,7 @@ class SalesCsvExporter {
     orders.write(_row(const [
       '单号','销售日期','客户','电话','收货地址','产品小计(元)',
       '优惠(元)','合同金额(元)','已收(元)','未收(元)','上期欠款快照(元)','状态','备注','版本','超收待处理(元)',
-      '余额抵扣(元)','收款已转余额(元)','有效现金收款(元)','净实际退款(元)',
+      '余额抵扣(元)','收款已转余额(元)','有效现金收款(元)','净实际退款(元)','累计实物退货(米)','累计实物退货面积(㎡)',
     ]));
     lines.write(_row(const [
       '单号','行序号','产品型号','规格','米数','门幅','面积(㎡)',
@@ -32,7 +32,8 @@ class SalesCsvExporter {
         money(sale.discountCents), money(sale.payableCents),
         money(sale.receivedCents), money(sale.currentDueCents),
         money(sale.priorDueCents), sale.status, _text(sale.note), '${sale.revision}', money(sale.overpaidCents),
-        money(sale.creditAppliedCents), money(sale.transferredCents), money(sale.netReceivedCents), money(sale.refundedCents),
+        money(sale.creditAppliedCents), money(sale.transferredCents), money(sale.netReceivedCents), money(sale.refundedCents), Fixed.format(sale.returnedLengthMilli, decimals: 3),
+        Fixed.format(sale.returnedAreaMicro, decimals: 6),
       ]));
       for (var i = 0; i < sale.lines.length; i++) {
         final line = sale.lines[i];

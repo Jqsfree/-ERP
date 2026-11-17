@@ -34,7 +34,8 @@ class SaleRevisionRepository implements SaleRevisionStore {
   }
 
   static Sale readSale(Map<String, Object?> snapshot, int received,
-    {int? creditAppliedCents, int? transferredCents, int? refundedCents}) {
+    {int? creditAppliedCents, int? transferredCents, int? refundedCents,
+      int returnedLengthMilli = 0, int returnedAreaMicro = 0}) {
     final h = Map<String, Object?>.from(snapshot['header'] as Map);
     return Sale(revision: snapshot['version'] as int,
       id: h['id'] as int, number: h['number'] as String, date: h['date'] as String,
@@ -46,6 +47,7 @@ class SaleRevisionRepository implements SaleRevisionStore {
       creditAppliedCents: creditAppliedCents ?? snapshot['creditAppliedCents'] as int? ?? 0,
       transferredCents: transferredCents ?? snapshot['transferredCents'] as int? ?? 0,
       refundedCents: refundedCents ?? snapshot['refundedCents'] as int? ?? 0,
+      returnedLengthMilli: returnedLengthMilli, returnedAreaMicro: returnedAreaMicro,
       status: h['status'] as String, note: h['note'] as String,
       lines: (snapshot['lines'] as List).map((r) => SaleLine.fromMap(
         Map<String, Object?>.from(r as Map))).toList());
@@ -209,6 +211,9 @@ class SaleRevisionRepository implements SaleRevisionStore {
       final customers = await tx.query('customers', where: 'id=?', whereArgs: [customerId]);
       if (customers.isEmpty) throw ArgumentError('客户不存在');
       final customer = customers.single;
+      if (customerId != old.customerId && customer['active'] != 1) {
+        throw StateError('不能将销售单改为停用客户');
+      }
       final happenedAt = clock();
       final now = happenedAt.toIso8601String();
       if (version == 0) {
@@ -264,16 +269,23 @@ class SaleRevisionRepository implements SaleRevisionStore {
   }
 
   @override
-  Future<List<SaleRevisionRecord>> saleRevisions(int saleId) async {
-    final rows = await db.query('sale_revisions', where: 'sale_id=?',
+  Future<List<SaleRevisionRecord>> saleRevisions(int saleId) => db.transaction((tx) async {
+    final rows = await tx.query('sale_revisions', where: 'sale_id=?',
       whereArgs: [saleId], orderBy: 'version DESC');
-    return rows.map((r) {
+    final records = <SaleRevisionRecord>[];
+    for (final r in rows) {
       final snapshot = Map<String, Object?>.from(jsonDecode(r['snapshot'] as String) as Map);
-      return SaleRevisionRecord(sale: readSale(snapshot, snapshot['receivedCents'] as int),
+      final returns = await tx.rawQuery('''SELECT COALESCE(SUM(rl.length_milli),0) AS length,
+        COALESCE(SUM(rl.area_micro),0) AS area FROM sale_return_lines rl
+        JOIN sale_returns sr ON sr.id=rl.return_id JOIN sale_dispatches d ON d.id=sr.dispatch_id
+        WHERE d.sale_id=? AND sr.id<=?''', [saleId, snapshot['returnCutoff'] ?? 0]);
+      records.add(SaleRevisionRecord(sale: readSale(snapshot, snapshot['receivedCents'] as int,
+        returnedLengthMilli: returns.single['length'] as int, returnedAreaMicro: returns.single['area'] as int),
         amountDeltaCents: r['amount_delta_cents'] as int, createdAt: r['created_at'] as String,
-        refunds: readRefunds(snapshot), returns: readReturns(snapshot));
-    }).toList();
-  }
+        refunds: readRefunds(snapshot), returns: readReturns(snapshot)));
+    }
+    return records;
+  });
 
   @override
   Future<List<PendingSaleRefund>> pendingSaleRefunds(int saleId) => db.transaction((tx) async {

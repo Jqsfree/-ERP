@@ -15,6 +15,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../domain/models.dart';
 import '../application/sales_store.dart';
+import '../application/master_data_store.dart';
 import '../application/backup_store.dart';
 import '../application/procurement_store.dart';
 import '../application/inventory_store.dart';
@@ -44,7 +45,7 @@ import 'backup_snapshot.dart';
 import '../domain/money.dart';
 import '../domain/safe_int.dart';
 
-class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerificationStore, ProcurementStore, InventoryStore, FulfillmentStore, FinanceStore, SaleRevisionStore, CustomerCreditStore, PaymentRequestStore, DataIntegrityStore {
+class AppDatabase implements RefundStore, SalesStore, MasterDataStore, BackupStore, BackupVerificationStore, ProcurementStore, InventoryStore, FulfillmentStore, FinanceStore, SaleRevisionStore, CustomerCreditStore, PaymentRequestStore, DataIntegrityStore {
   AppDatabase._({DatabaseFactory? factory, String? databasePath, DateTime Function()? clock})
       : _factory = factory, _databasePath = databasePath, _clock = clock ?? DateTime.now;
 
@@ -54,7 +55,7 @@ class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerific
       : this._(factory: factory, databasePath: databasePath, clock: clock);
 
   static final AppDatabase instance = AppDatabase._();
-  static const schemaVersion = 11;
+  static const schemaVersion = 12;
   final DatabaseFactory? _factory;
   final String? _databasePath;
   final DateTime Function() _clock;
@@ -132,6 +133,7 @@ class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerific
         await SaleCreditSchema.create(db);
         await PaymentRequestSchema.create(db);
         await RefundSchema.create(db);
+        await _addMasterActive(db);
       },
       onUpgrade: (db, from, to) async {
         if (from < 2) await db.execute(_draftSchema);
@@ -144,9 +146,19 @@ class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerific
         if (from < 9) await SaleCreditSchema.create(db);
         if (from < 10) await PaymentRequestSchema.create(db);
         if (from < 11) await RefundSchema.create(db);
+        if (from < 12) await _addMasterActive(db);
       },
       ),
     );
+  }
+
+  static Future<void> _addMasterActive(DatabaseExecutor db) async {
+    for (final table in ['customers', 'products']) {
+      final fields = await db.rawQuery('PRAGMA table_info($table)');
+      if (!fields.any((field) => field['name'] == 'active')) {
+        await db.execute('ALTER TABLE $table ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))');
+      }
+    }
   }
 
   static const _draftSchema = '''CREATE TABLE sale_drafts (
@@ -237,6 +249,7 @@ class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerific
     await (await db).insert('customers', {
       'name': item.name.trim(), 'phone': item.phone.trim(),
       'address': item.address.trim(), 'opening_balance_cents': item.openingBalanceCents,
+      'active': item.active ? 1 : 0,
     });
   }
 
@@ -252,6 +265,44 @@ class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerific
     await (await db).insert('products', {
       'code': item.code.trim(), 'specification': item.specification.trim(),
       'unit_price_cents': item.unitPriceCents,
+      'active': item.active ? 1 : 0,
+    });
+  }
+
+  @override
+  Future<void> updateCustomer(Customer item) async {
+    if (item.id == null || item.name.trim().isEmpty) throw ArgumentError('客户ID及名称必填');
+    await (await db).transaction((tx) async {
+      final rows = await tx.query('customers', where: 'id=?', whereArgs: [item.id]);
+      if (rows.isEmpty) throw StateError('客户不存在');
+      if (rows.single['opening_balance_cents'] != item.openingBalanceCents) {
+        throw StateError('期初欠款不可编辑');
+      }
+      await tx.update('customers', {
+        'name': item.name.trim(), 'phone': item.phone.trim(), 'address': item.address.trim(),
+        'active': item.active ? 1 : 0,
+      }, where: 'id=?', whereArgs: [item.id]);
+    });
+  }
+
+  @override
+  Future<void> updateProduct(Product item) async {
+    if (item.id == null || item.code.trim().isEmpty || item.unitPriceCents < 0) {
+      throw ArgumentError('商品ID、型号或单价无效');
+    }
+    await (await db).transaction((tx) async {
+      final rows = await tx.query('products', where: 'id=?', whereArgs: [item.id]);
+      if (rows.isEmpty) throw StateError('产品不存在');
+      if (rows.single['code'] != item.code.trim()) {
+        final linked = await tx.rawQuery(
+          'SELECT 1 FROM sale_lines WHERE product_id=? UNION ALL SELECT 1 FROM purchase_lines WHERE product_id=? LIMIT 1',
+          [item.id, item.id]);
+        if (linked.isNotEmpty) throw StateError('已有历史业务的产品型号不可改；可修改规格、单价或停用');
+      }
+      await tx.update('products', {
+        'code': item.code.trim(), 'specification': item.specification.trim(),
+        'unit_price_cents': item.unitPriceCents, 'active': item.active ? 1 : 0,
+      }, where: 'id=?', whereArgs: [item.id]);
     });
   }
 
@@ -311,6 +362,7 @@ class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerific
           where: 'id = ?', whereArgs: [line.productId]);
         if (products.isEmpty) throw ArgumentError('采购明细引用了不存在的产品');
         final product = Product.fromMap(products.single);
+        if (!product.active) throw StateError('停用产品不能创建采购订单');
         persisted.add(PurchaseLine(
           productId: line.productId, code: product.code,
           specification: product.specification, lengthMilli: line.lengthMilli,
@@ -821,6 +873,10 @@ class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerific
           return previous.single['sale_id'] as int;
         }
       }
+      final customerRows = await tx.query('customers', where: 'id=?', whereArgs: [customer.id]);
+      if (customerRows.isEmpty) throw ArgumentError('客户不存在');
+      final currentCustomer = Customer.fromMap(customerRows.single);
+      if (!currentCustomer.active) throw StateError('停用客户不能新开销售单');
       await ProductIdentity.validate(tx, lines);
       final priorDue = await customerOutstanding(customer.id!, tx: tx);
       final now = _clock();
@@ -833,8 +889,8 @@ class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerific
       final number = '$prefix${next.toString().padLeft(4, '0')}';
       final saleId = await tx.insert('sales', {
         'number': number, 'date': date, 'customer_id': customer.id!,
-        'customer_name_snapshot': customer.name, 'customer_phone_snapshot': customer.phone,
-        'customer_address_snapshot': customer.address, 'subtotal_cents': subtotal,
+        'customer_name_snapshot': currentCustomer.name, 'customer_phone_snapshot': currentCustomer.phone,
+        'customer_address_snapshot': currentCustomer.address, 'subtotal_cents': subtotal,
         'discount_cents': discountCents, 'prior_due_snapshot': priorDue,
         'status': 'confirmed', 'note': note.trim(), 'created_at': now.toIso8601String(),
       });
@@ -928,6 +984,11 @@ class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerific
       FROM sale_credit_events ${saleId == null ? '' : 'WHERE sale_id=?'}
       GROUP BY sale_id,customer_epoch''', saleId == null ? [] : [saleId]);
     final creditByEpoch = {for (final c in creditRows) '${c['sale_id']}:${c['customer_epoch']}': c};
+    final returnRows = await database.rawQuery('''SELECT d.sale_id, SUM(rl.length_milli) AS length,
+      SUM(rl.area_micro) AS area FROM sale_return_lines rl JOIN sale_returns sr ON sr.id=rl.return_id
+      JOIN sale_dispatches d ON d.id=sr.dispatch_id
+      ${saleId == null ? '' : 'WHERE d.sale_id=?'} GROUP BY d.sale_id''', saleId == null ? [] : [saleId]);
+    final returnsBySale = {for (final row in returnRows) row['sale_id']: row};
     for (final r in revisions) {
       final id = r['sale_id'] as int;
       if (!idsSet.contains(id)) continue;
@@ -936,7 +997,9 @@ class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerific
         paidByEpoch['$id:${s['epoch']}'] ?? 0,
         creditAppliedCents: creditByEpoch['$id:${s['epoch']}']?['applied'] as int? ?? 0,
         transferredCents: creditByEpoch['$id:${s['epoch']}']?['transferred'] as int? ?? 0,
-        refundedCents: await RefundLedger.net(database, id, s['epoch'] as int));
+        refundedCents: await RefundLedger.net(database, id, s['epoch'] as int),
+        returnedLengthMilli: returnsBySale[id]?['length'] as int? ?? 0,
+        returnedAreaMicro: returnsBySale[id]?['area'] as int? ?? 0);
     }
     return rows.map((row) {
       final id = row['id'] as int;
@@ -953,6 +1016,8 @@ class AppDatabase implements RefundStore, SalesStore, BackupStore, BackupVerific
         receivedCents: row['paid'] as int,
         creditAppliedCents: creditByEpoch['$id:0']?['applied'] as int? ?? 0,
         transferredCents: creditByEpoch['$id:0']?['transferred'] as int? ?? 0,
+        returnedLengthMilli: returnsBySale[id]?['length'] as int? ?? 0,
+        returnedAreaMicro: returnsBySale[id]?['area'] as int? ?? 0,
         status: row['status'] as String, note: row['note'] as String,
         lines: linesBySale[id] ?? [],
       );

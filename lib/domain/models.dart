@@ -7,13 +7,15 @@ class Customer {
   final String phone;
   final String address;
   final int openingBalanceCents;
+  final bool active;
 
-  const Customer({this.id, required this.name, this.phone = '', this.address = '', this.openingBalanceCents = 0});
+  const Customer({this.id, required this.name, this.phone = '', this.address = '', this.openingBalanceCents = 0, this.active = true});
 
   factory Customer.fromMap(Map<String, Object?> m) => Customer(
     id: m['id'] as int, name: m['name'] as String,
     phone: m['phone'] as String? ?? '', address: m['address'] as String? ?? '',
     openingBalanceCents: m['opening_balance_cents'] as int? ?? 0,
+    active: (m['active'] ?? 1) == 1,
   );
 }
 
@@ -22,13 +24,15 @@ class Product {
   final String code;
   final String specification;
   final int unitPriceCents;
+  final bool active;
 
-  const Product({this.id, required this.code, this.specification = '', required this.unitPriceCents});
+  const Product({this.id, required this.code, this.specification = '', required this.unitPriceCents, this.active = true});
 
   factory Product.fromMap(Map<String, Object?> m) => Product(
     id: m['id'] as int, code: m['code'] as String,
     specification: m['specification'] as String? ?? '',
     unitPriceCents: m['unit_price_cents'] as int,
+    active: (m['active'] ?? 1) == 1,
   );
 }
 
@@ -78,6 +82,9 @@ class Sale {
   final int creditAppliedCents;
   final int transferredCents;
   final int refundedCents;
+  /// Physical return facts are independent of monetary refunds.
+  final int returnedLengthMilli;
+  final int returnedAreaMicro;
   final String status;
   final String note;
   final List<SaleLine> lines;
@@ -86,7 +93,7 @@ class Sale {
     required this.customerId, required this.customerName, required this.customerPhone,
     required this.customerAddress, required this.subtotalCents, required this.discountCents,
     required this.priorDueCents, required this.receivedCents,
-    this.creditAppliedCents = 0, this.transferredCents = 0, this.refundedCents = 0,
+    this.creditAppliedCents = 0, this.transferredCents = 0, this.refundedCents = 0, this.returnedLengthMilli = 0, this.returnedAreaMicro = 0,
     required this.status, required this.note, required this.lines});
 
   int get payableCents => subtotalCents - discountCents;
